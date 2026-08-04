@@ -64,12 +64,25 @@ handling its own deletions independently.
 
 **CTL-080 | SHOULD | Status condition updates**
 Use non-terminal conditions for observability instead of event floods. Continuous states (scaling status) are
-conditions, not events. Condition-writing code must also: carry the current `observedGeneration`, since a `Ready=True`
-condition from a previous generation is worse than no condition at all; write status only on a semantic change, so
-requeues don't produce a write storm; use stable, machine-readable `reason` values, with *different* reasons for
-semantically different failures (`ModelNameMismatch` vs `ModelNameAmbiguous`), because a shared reason makes
-programmatic handling impossible; and surface the reason and message from the first failing subcondition on the
-top-level `Ready` condition, so users don't have to walk every condition to find the cause.
+conditions, not events.
+
+KServe's own status types embed knative `duckv1.Status` and use `apis.ConditionSet` (`llmInferenceServiceCondSet`,
+`conditionSet` in `inference_service_status.go`). That machinery already handles `LastTransitionTime`, rollup into the
+top-level `Ready`, and propagation of the failing dependent's reason and message — do **not** ask for those by hand,
+and do **not** ask for a per-condition `observedGeneration`: knative's `apis.Condition` has no such field. What still
+needs review:
+
+- **New sub-conditions must be registered as dependents** in `apis.NewLivingConditionSet(...)`, otherwise they are set
+  but never roll up into `Ready`, and a failing component leaves the resource reporting `Ready=True`. Adding a new
+  `apis.ConditionType` constant without adding it to the condition set is the common form of this bug.
+- **Distinct, stable, machine-readable `reason` values per failure mode** (`ModelNameMismatch` vs
+  `ModelNameAmbiguous`). Knative takes the reason from the caller, so a shared reason across semantically different
+  failures still defeats programmatic handling.
+- **Reading conditions from foreign resources** (HTTPRoute, InferencePool, Gateway — these are `metav1.Condition` and
+  *do* have `observedGeneration`) must apply the staleness check the surrounding code already establishes:
+  `cond.ObservedGeneration < obj.Generation` means the condition describes an older spec. See
+  `pkg/controller/v1alpha2/llmisvc/router_discovery.go` for the established pattern; new readers should match it.
+- **Status writes only on semantic change**, so requeues and resyncs don't produce a write storm.
 
 **CTL-090 | SHOULD | Reconciler structure**
 Have a top-level `finalize(ctx, original)` method for cleanup to prevent the `else` branch from growing organically with
