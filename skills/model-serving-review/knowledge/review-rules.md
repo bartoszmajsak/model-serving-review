@@ -187,7 +187,11 @@ namespace-scoped resources.
 
 **SEC-050 | SHOULD | Security context**
 Base configs define runAsNonRoot and security context. Don't re-set in overlays. Check that new containers/pods inherit
-the base security context.
+the base security context. On OpenShift, never hardcode a numeric `runAsUser` in a controller-managed workload
+template: SCC assigns each namespace a UID range, and a fixed UID outside that range makes the pod unschedulable. Use
+`runAsNonRoot: true` and let the platform assign the UID. Generic hardening advice is not automatically safe here —
+`readOnlyRootFilesystem: true` breaks CDI-based GPU injection and OCI modelcar serving, so see BUG-030 before
+recommending it.
 
 **SEC-060 | MUST | AuthPolicy or authorization rules with multiple paths**
 Fail closed on authorization path mismatch. When multiple authorization rules exist (e.g., model-level SAR vs
@@ -222,6 +226,48 @@ transport credentials, and outbound clients that do not enforce TLS. Exception: 
 (`127.0.0.1`, `localhost`, `::1`) between containers in the same pod may use plaintext, because it never crosses the
 pod network boundary. A listener bound to `0.0.0.0` or a named service address is not intra-pod, even if today's only
 caller is local.
+
+**SEC-080 | MUST | RBAC rules or kubebuilder RBAC markers**
+Flag wildcard verbs, resources, or API groups (`"*"`) and grants of `escalate`, `bind`, or `impersonate` unless the diff
+supplies a specific, reviewable justification — these let the holder grant themselves any permission, which makes the
+rest of the RBAC surface moot. Access to `secrets`, `nodes/proxy`, `pods/exec`, `pods/attach`, and
+`certificatesigningrequests/approval` is dangerous but often legitimate; require least-privilege scoping (narrow verbs,
+`resourceNames` where the set is fixed, namespaced Role instead of ClusterRole where the resource is namespaced) rather
+than treating it as an automatic violation. Cross-check `//+kubebuilder:rbac` markers against the generated role and
+against the client operations the reconciler actually performs: a marker granting more than the code uses is the
+common form of drift. Complements BUG-050 (missing RBAC for new watches) — establish actual usage from the code before
+proposing a narrower grant, so a least-privilege suggestion does not break a watch.
+
+**SEC-090 | SHOULD | New workloads or pod templates**
+A new workload that does not call the Kubernetes API should run under a dedicated ServiceAccount with
+`automountServiceAccountToken: false`, so a compromised container has no cluster credential to steal. KServe already
+does this in `config/llmisvcconfig/config-llm-tokenizer.yaml`; match that pattern. Before filing, check both the pod
+spec and the ServiceAccount — the setting is inherited, so a pod under an SA that already disables automount is
+compliant. Not a finding for workloads that genuinely need API access or use projected/bound tokens.
+**Applies to newly added workloads only.** Adding `automountServiceAccountToken: false` to an existing
+controller-managed pod template changes the pod template hash and forces a rollout on upgrade — that is a CTL-100 /
+BUG-010 violation, and the hardening is not worth an upgrade Blocker. For existing templates, raise it as a note, not a
+required change.
+
+**SEC-100 | MUST | GitHub Actions workflow changes**
+Untrusted-input handling in CI. Flag: (1) direct interpolation of attacker-controlled event data
+(`github.event.pull_request.title|body|head.ref`, issue comments) into a `run:` block, which is shell injection — pass
+it through `env:` and reference `"$VAR"` instead; (2) `pull_request_target` workflows that check out and execute PR-head
+code, which runs untrusted code with a privileged token and repository secrets; (3) third-party actions referenced by
+tag or branch rather than a full commit SHA; (4) broader `permissions:` than the job needs, especially write scopes on
+jobs that execute untrusted code.
+`pull_request_target` is not itself a violation — KServe uses it correctly in `auto-assign-reviewers.yml` and
+`pr-style-check.yml`, which pin actions by SHA, check out `ref: master` rather than PR head, pass event data via `env:`,
+and scope permissions per job. Flag the unsafe combination, not the trigger.
+
+**SEC-110 | MUST | Logging, error wrapping, or event/condition messages**
+Secret material must not reach logs, error strings, Events, or status conditions. Values from `Secret.Data` /
+`StringData`, decoded tokens, passwords, and API keys are all permanently exposed once written to a log aggregator, and
+KServe handles `HF_TOKEN`, storage credentials, and imagePullSecrets throughout the storage pipeline (see BUG-120).
+Logging an object that embeds secret values counts.
+**Not findings** — these are references, not secret material: Secret names and namespaces, key *names* and field
+selectors (`modelInfo.Storage.StorageKey` is the name of a key inside the storage-config Secret, not the credential),
+ServiceAccount names, and object references. Only flag a value that is itself the secret.
 
 ## Testing (TST-*)
 

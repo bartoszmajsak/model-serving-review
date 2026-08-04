@@ -46,6 +46,14 @@ behavior based on PR descriptions.
   refs/ and verify every routable path has a corresponding auth rule. Vice versa if the diff touches HTTPRoute config.
 - SEC-070: For CEL expressions with interpolated template variables, verify the validation allowlist blocks all
   CEL-significant characters.
+- SEC-080: RBAC and `//+kubebuilder:rbac` markers. Flag wildcards and escalate/bind/impersonate. For dangerous-but-legit
+  access (secrets, pods/exec, nodes/proxy) require scoping, not removal. Cross-check the marker against the client
+  calls the reconciler actually makes.
+- SEC-090: New workloads that make no Kubernetes API calls should use a dedicated SA with
+  `automountServiceAccountToken: false` (see `config/llmisvcconfig/config-llm-tokenizer.yaml`).
+- SEC-100: `.github/workflows/` changes. Flag event data interpolated straight into `run:`, `pull_request_target` that
+  checks out and executes PR-head code, actions pinned by tag instead of full SHA, and over-broad job `permissions`.
+- SEC-110: Secret material in logs, error strings, Events, or condition messages. Only the secret *value* counts.
 - MIG: Check label/annotation propagation changes for restart risk.
 - MIG: Check version-dependent logic for fallback paths.
 - MIG: Check webhook name changes for ghost webhook risk.
@@ -68,6 +76,23 @@ behavior based on PR descriptions.
 - BUG-110: For multi-node/P/D changes, test with actual topologies — check NIC enumeration, metrics dedup.
 - BUG-120: Storage initializer / modelcar injection — check argument list length limits, credential propagation,
   storageUri webhook mutation guards, FIPS compliance, multi-arch builds.
+
+**Do NOT flag these — established false positives:**
+
+- `pull_request_target` by itself. KServe uses it correctly in `auto-assign-reviewers.yml` and `pr-style-check.yml`:
+  SHA-pinned actions, `ref: master` rather than PR head, event data passed via `env:`, scoped per-job permissions. Flag
+  the unsafe combination (privileged trigger + PR-head checkout + execution), never the trigger alone.
+- Secret *names*, namespaces, key names, field selectors, ServiceAccount names, or object references in log lines.
+  SEC-110 covers the secret value only. `modelInfo.Storage.StorageKey` is the name of a key inside a Secret, not a
+  credential. If you cannot tell whether an identifier is a name or a value, resolve the type before filing.
+- `automountServiceAccountToken` on an *existing* controller-managed pod template. Changing it alters the pod template
+  hash and forces a rollout on upgrade (CTL-100/BUG-010). SEC-090 applies to newly added workloads; for existing ones
+  the finding is worse than the gap. Also check the ServiceAccount — the setting is inherited.
+- RBAC access to secrets, pods/exec, or nodes/proxy purely because it is on a sensitive-resource list. KServe reads
+  storage credentials by design. SEC-080 asks for scoping; establish what the reconciler actually calls first, and never
+  propose narrowing a grant an existing watch needs (BUG-050).
+- `readOnlyRootFilesystem` or a fixed `runAsUser` as generic hardening. See BUG-030: readOnlyRootFilesystem breaks
+  CDI GPU injection and modelcar serving, and a hardcoded UID violates OpenShift SCC namespace UID ranges.
 
 **Output format:** Return findings as a JSON array:
 

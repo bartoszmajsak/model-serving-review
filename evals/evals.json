@@ -763,6 +763,113 @@
         ],
         "max_findings": 1
       }
+    },
+    {
+      "id": "sec-080-wildcard-rbac",
+      "category": "security",
+      "prompt": "Review the code changes in this repo for security issues.",
+      "description": "ClusterRole gains wildcard verbs on secrets, escalate/bind on RBAC resources, and a wildcard apiGroup/resource rule.",
+      "expected_output": "Should flag SEC-080 for wildcard verbs and privilege-escalation grants.",
+      "assertions": {
+        "expected_rules": [
+          "SEC-080"
+        ],
+        "expected_files": [
+          "config/rbac/role.yaml"
+        ],
+        "min_findings": 1,
+        "max_findings": 4
+      }
+    },
+    {
+      "id": "sec-090-automount-token",
+      "category": "security",
+      "prompt": "Review the code changes in this repo for security issues.",
+      "description": "New metrics-exporter sidecar makes no Kubernetes API calls but uses the default ServiceAccount with token automount enabled.",
+      "expected_output": "Should flag SEC-090 for a new workload that should disable token automount.",
+      "assertions": {
+        "expected_rules": [
+          "SEC-090"
+        ],
+        "expected_files": [
+          "config/llmisvcconfig/config-llm-metrics.yaml"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "sec-100-workflow-injection",
+      "category": "security",
+      "prompt": "Review the code changes in this repo for security issues.",
+      "description": "CI-only diff: pull_request_target checks out PR head and runs make, PR title interpolated into run:, action pinned by tag, write permissions. Also proves safety-reviewer launches on ci_files alone.",
+      "expected_output": "Should flag SEC-100 for untrusted PR-head execution and event-data injection.",
+      "assertions": {
+        "expected_rules": [
+          "SEC-100"
+        ],
+        "expected_files": [
+          ".github/workflows/pr-check.yml"
+        ],
+        "min_findings": 1,
+        "max_findings": 4
+      }
+    },
+    {
+      "id": "sec-110-token-in-logs",
+      "category": "security",
+      "prompt": "Review the code changes in this repo for security issues.",
+      "description": "Decoded HF_TOKEN value is logged, the whole Secret object is logged at V(2), and the token is wrapped into an error string.",
+      "expected_output": "Should flag SEC-110 for writing secret material to logs and errors.",
+      "assertions": {
+        "expected_rules": [
+          "SEC-110"
+        ],
+        "expected_files": [
+          "pkg/controller/v1alpha1/localmodelnode/credentials.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "negative-sec-100-safe-workflow",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for security issues.",
+      "description": "Precision check: pull_request_target used correctly - SHA-pinned action, ref: master, event data via env, scoped permissions. Mirrors kserve's own pr-style-check.yml.",
+      "expected_output": "Should NOT flag SEC-100. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "SEC-100"
+        ],
+        "max_findings": 1
+      }
+    },
+    {
+      "id": "negative-sec-110-secret-name",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for security issues.",
+      "description": "Precision check: logs a Secret name/namespace and a storage KEY NAME, never a value. StorageKey is the name of a key in the storage-config Secret.",
+      "expected_output": "Should NOT flag SEC-110. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "SEC-110"
+        ],
+        "max_findings": 1
+      }
+    },
+    {
+      "id": "negative-sec-090-sa-disables-automount",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for security issues.",
+      "description": "Precision check: pod omits automountServiceAccountToken but its dedicated ServiceAccount already sets it to false - the setting is inherited.",
+      "expected_output": "Should NOT flag SEC-090. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "SEC-090"
+        ],
+        "max_findings": 1
+      }
     }
   ]
 }

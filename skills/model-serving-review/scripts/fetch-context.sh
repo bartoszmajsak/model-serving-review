@@ -163,7 +163,11 @@ fi
 # Classify files
 GO_FILES=$(echo "$FILES" | grep -E '\.go$' | grep -v '_test\.go$' || true)
 TEST_FILES=$(echo "$FILES" | grep -E '(_test\.go$|^test/)' || true)
-CONFIG_FILES=$(echo "$FILES" | grep -E '(^config/|\.yaml$|\.yml$|kustomization|params\.env)' || true)
+# Must mirror the config.diff pathspec above, including its ':!test/' ':!.github/' ':!docs/'
+# exclusions. Otherwise a workflow .yml or a test fixture .yaml classifies as a config file and
+# launches config-reviewer against an empty config.diff.
+CONFIG_FILES=$(echo "$FILES" | grep -E '(^config/|\.yaml$|\.yml$|kustomization|params\.env)' \
+  | grep -vE '(^test/|^\.github/|^docs/)' || true)
 API_FILES=$(echo "$FILES" | grep -E '(^pkg/apis/|_types\.go$|_types_func\.go$|_lifecycle\.go$)' || true)
 CI_FILES=$(echo "$FILES" | grep -E '(^\.github/|^Makefile$|^hack/)' || true)
 # Controller scope must match CONTROLLER_PATHS above. Tests are excluded — they route via TEST_FILES.
