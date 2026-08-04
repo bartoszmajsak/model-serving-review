@@ -142,16 +142,20 @@ fi
 DIFF_LINES=$(wc -l < "$REVIEW_DIR/full.diff")
 
 # Write per-dimension filtered diffs
+# Controller scope: pkg/controller/, internal/controller/, cmd/, plus pkg/utils/storage.go
+# (a Tier-1 controller-owned hot file — modelcar command generation, pod template hash stability).
+CONTROLLER_PATHS=('pkg/controller/' 'internal/controller/' 'cmd/' 'pkg/utils/storage.go')
+
 if [[ "$MODE" == "unstaged" ]]; then
-  git diff -- 'pkg/controller/' 'cmd/' > "$REVIEW_DIR/controller.diff" 2>/dev/null || true
+  git diff -- "${CONTROLLER_PATHS[@]}" > "$REVIEW_DIR/controller.diff" 2>/dev/null || true
   git diff -- 'pkg/apis/' '*_types.go' '*_types_func.go' '*_lifecycle.go' > "$REVIEW_DIR/api.diff" 2>/dev/null || true
   git diff -- 'config/' '*.yaml' '*.yml' 'params.env' ':!test/' ':!.github/' ':!docs/' > "$REVIEW_DIR/config.diff" 2>/dev/null || true
 elif [[ "$MODE" == "staged" ]]; then
-  git diff --cached -- 'pkg/controller/' 'cmd/' > "$REVIEW_DIR/controller.diff" 2>/dev/null || true
+  git diff --cached -- "${CONTROLLER_PATHS[@]}" > "$REVIEW_DIR/controller.diff" 2>/dev/null || true
   git diff --cached -- 'pkg/apis/' '*_types.go' '*_types_func.go' '*_lifecycle.go' > "$REVIEW_DIR/api.diff" 2>/dev/null || true
   git diff --cached -- 'config/' '*.yaml' '*.yml' 'params.env' ':!test/' ':!.github/' ':!docs/' > "$REVIEW_DIR/config.diff" 2>/dev/null || true
 else
-  git diff $DIFF_ARGS -- 'pkg/controller/' 'cmd/' > "$REVIEW_DIR/controller.diff" 2>/dev/null || true
+  git diff $DIFF_ARGS -- "${CONTROLLER_PATHS[@]}" > "$REVIEW_DIR/controller.diff" 2>/dev/null || true
   git diff $DIFF_ARGS -- 'pkg/apis/' '*_types.go' '*_types_func.go' '*_lifecycle.go' > "$REVIEW_DIR/api.diff" 2>/dev/null || true
   git diff $DIFF_ARGS -- 'config/' '*.yaml' '*.yml' 'params.env' ':!test/' ':!.github/' ':!docs/' > "$REVIEW_DIR/config.diff" 2>/dev/null || true
 fi
@@ -162,6 +166,8 @@ TEST_FILES=$(echo "$FILES" | grep -E '(_test\.go$|^test/)' || true)
 CONFIG_FILES=$(echo "$FILES" | grep -E '(^config/|\.yaml$|\.yml$|kustomization|params\.env)' || true)
 API_FILES=$(echo "$FILES" | grep -E '(^pkg/apis/|_types\.go$|_types_func\.go$|_lifecycle\.go$)' || true)
 CI_FILES=$(echo "$FILES" | grep -E '(^\.github/|^Makefile$|^hack/)' || true)
+# Controller scope must match CONTROLLER_PATHS above. Tests are excluded — they route via TEST_FILES.
+CONTROLLER_FILES=$(echo "$GO_FILES" | grep -E '(^pkg/controller/|^internal/controller/|^cmd/|^pkg/utils/storage\.go$)' || true)
 
 # Fetch cross-repo reference files (small static files, always fetched)
 mkdir -p "$REVIEW_DIR/refs"
@@ -201,6 +207,7 @@ jq -n \
   --argjson config_files "$(to_json_array "$CONFIG_FILES")" \
   --argjson api_files "$(to_json_array "$API_FILES")" \
   --argjson ci_files "$(to_json_array "$CI_FILES")" \
+  --argjson controller_files "$(to_json_array "$CONTROLLER_FILES")" \
   '{
     scripts_dir: $scripts_dir,
     repo: $repo,
@@ -215,7 +222,8 @@ jq -n \
     test_files: $test_files,
     config_files: $config_files,
     api_files: $api_files,
-    ci_files: $ci_files
+    ci_files: $ci_files,
+    controller_files: $controller_files
   }' > "$REVIEW_DIR/metadata.json"
 
 # Output the path — the orchestrator reads this with the Read tool

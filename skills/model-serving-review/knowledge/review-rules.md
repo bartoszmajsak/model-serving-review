@@ -163,6 +163,13 @@ Validate all interpolated values in CEL expressions against injection. Template 
 Verify the allowlist blocks all CEL-significant characters: quotes, parentheses, backslashes, pipes, ampersands. Add
 unit tests covering edge cases for the validation function.
 
+**SEC-075 | MUST | New listeners or outbound connections**
+New servers and outbound connections must use TLS/HTTPS. Flag plaintext HTTP listeners, gRPC servers/dials without
+transport credentials, and outbound clients that do not enforce TLS. Exception: intra-pod communication over localhost
+(`127.0.0.1`, `localhost`, `::1`) between containers in the same pod may use plaintext, because it never crosses the
+pod network boundary. A listener bound to `0.0.0.0` or a named service address is not intra-pod, even if today's only
+caller is local.
+
 ## Testing (TST-*)
 
 **TST-010 | MUST | Bug fixes**

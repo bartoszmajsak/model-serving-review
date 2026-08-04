@@ -47,11 +47,11 @@ Fields in metadata.json:
 - `is_odh` — true for opendatahub-io repos
 - `source_desc` — human-readable description of what's being reviewed
 - `diff_lines` — line count of the full diff
-- `go_files`, `test_files`, `config_files`, `api_files`, `ci_files` — classified file lists
+- `go_files`, `test_files`, `config_files`, `api_files`, `ci_files`, `controller_files` — classified file lists
 
 Pre-extracted files in review_dir:
 - `full.diff` — complete unified diff
-- `controller.diff` — filtered to pkg/controller/ and cmd/
+- `controller.diff` — filtered to pkg/controller/, internal/controller/, cmd/, and pkg/utils/storage.go
 - `api.diff` — filtered to pkg/apis/ and *_types.go files
 - `config.diff` — filtered to config/, *.yaml, *.yml, params.env
 - `refs/` — cross-repo reference files (K8s conventions, architecture doc, HTTPRoute config, AuthPolicy template)
@@ -77,9 +77,9 @@ Launch applicable review agents simultaneously as typed subagents. Each agent re
 Pass to each agent: `scripts_dir`, `review_dir`, `work_dir`, `source_desc`, `repo`, changed file lists, the applicable rules from review-rules.md, matching examples from examples.md, and any risk context from critical-areas.md.
 
 ### Agent: controller-reviewer
-**Launch when:** `go_files` includes paths under `pkg/controller/` or `cmd/`.
+**Launch when:** `controller_files` is non-empty.
 **Spawn as:** `Agent(subagent_type: "controller-reviewer")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, filtered go_files, CTL/CODE/MIG-050/MIG-060 rules and examples, risk context for Tier 1/2 files.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, `controller_files` (pass this exact list, not `go_files`), CTL/CODE/MIG-050/MIG-060 rules and examples, risk context for Tier 1/2 files.
 **Note:** If files touch `pkg/controller/*/llmisvc/` or `config/llmisvcconfig/`, mention that `$review_dir/refs/llmisvc-architecture.md` is available.
 
 ### Agent: api-reviewer
@@ -94,9 +94,11 @@ Pass to each agent: `scripts_dir`, `review_dir`, `work_dir`, `source_desc`, `rep
 **Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, is_odh, config_files, CFG/SYNC/NAM/XREPO rules and examples.
 
 ### Agent: safety-reviewer
-**Launch when:** any of `go_files`, `config_files`, or `api_files` are non-empty.
+**Launch when:** any of `go_files`, `test_files`, `config_files`, `api_files`, or `ci_files` are non-empty.
+`test_files` matters on its own: a diff that only touches `*_test.go` or `test/` is exactly what the TST-* rules are
+written for, and it classifies into no other list. Same for `ci_files` and the SEC-100 workflow rules.
 **Spawn as:** `Agent(subagent_type: "safety-reviewer")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, all file lists, SEC/MIG/TST/BUG rules and examples, risk context.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, `is_odh`, all file lists (including `test_files` and `ci_files`), SEC/MIG/TST/BUG rules and examples, risk context.
 **Note:** If files touch llmisvc/TLS/EPP/AuthPolicy/HTTPRoute, mention which refs/ files are available.
 
 Only launch agents for dimensions with applicable changed files.

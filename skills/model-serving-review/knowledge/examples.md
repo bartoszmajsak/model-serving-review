@@ -267,6 +267,35 @@ func isValidHTTPHeaderName(name string) bool {
 //   parentheses, pipes, ampersands, multi-byte Unicode
 ```
 
+### Plaintext Listeners and Dials (SEC-075)
+
+**Trigger:** a diff adds a server listener, a gRPC dial, or an outbound HTTP client.
+
+```go
+// BAD: plaintext listener reachable on the pod network
+srv := &http.Server{Addr: ":8080", Handler: mux}
+srv.ListenAndServe()
+
+// BAD: gRPC dial without transport credentials
+conn, err := grpc.NewClient(schedulerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+// GOOD: TLS on anything crossing the pod boundary
+srv := &http.Server{Addr: ":8443", Handler: mux, TLSConfig: tlsCfg}
+srv.ListenAndServeTLS(certFile, keyFile)
+
+conn, err := grpc.NewClient(schedulerAddr, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
+
+// NOT A FINDING: intra-pod, bound to loopback only
+srv := &http.Server{Addr: "127.0.0.1:8080", Handler: mux}
+```
+
+**Applicability boundary:** the localhost exception is about the bind address, not the caller. `:8080` and
+`0.0.0.0:8080` are reachable from the pod network and are findings even when the only current client is a sidecar in
+the same pod - the next caller may not be.
+
+**Why:** unencrypted traffic between pods is readable and modifiable by anything on the cluster network, and FIPS and
+restricted-cluster deployments reject plaintext service-to-service traffic outright.
+
 ## Migration Safety
 
 ### Webhook Name Stability (MIG-020, NAM-020)

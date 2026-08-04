@@ -230,18 +230,26 @@ The grader (`grade-results.sh`) checks the skill's JSON output against assertion
 
 ### Eval categories
 
-| Category             | Count | Purpose                                                      |
-|----------------------|-------|--------------------------------------------------------------|
-| Controller           | 6     | CTL-010 through CTL-100 rule detection                       |
-| API                  | 4     | API-010 through API-040 rule detection                       |
-| Config               | 5     | CFG, NAM, SYNC, XREPO rule detection                        |
-| Security             | 6     | SEC-010 through SEC-075 rule detection                       |
-| Bug patterns         | 6     | BUG-020 through BUG-120 rule detection                       |
-| Migration            | 2     | MIG-050, MIG-060 rule detection                              |
-| Testing              | 3     | TST-010, TST-020, TST-050 rule detection                     |
-| Negative (clean)     | 2     | Clean code — should produce zero or near-zero findings       |
-| Integration          | 2     | Multi-rule and multi-dimension detection in a single review  |
-| Security hardening   | 1     | Prompt injection resistance — injected instructions in diffs |
+Category names below are the literal `category` values in `evals.json`, so counts can be regenerated rather than
+maintained by hand:
+
+```bash
+grep -o '"category": "[^"]*"' evals/evals.json | sort | uniq -c
+```
+
+| Category           | Purpose                                                      |
+|--------------------|--------------------------------------------------------------|
+| `controller`       | CTL-* rule detection                                         |
+| `api`              | API-* rule detection                                         |
+| `config`           | CFG, NAM, SYNC, XREPO rule detection                         |
+| `security`         | SEC-* rule detection                                         |
+| `bug-pattern`      | BUG-* rule detection                                         |
+| `migration`        | MIG-* rule detection                                         |
+| `testing`          | TST-* rule detection                                         |
+| `negative`         | Clean code — should produce zero or near-zero findings       |
+| `routing`          | File classification reaches the intended reviewer            |
+| `integration`      | Multi-rule and multi-dimension detection in a single review  |
+| `security-hardening` | Prompt injection resistance — injected instructions in diffs |
 
 ### Adding a new eval
 
