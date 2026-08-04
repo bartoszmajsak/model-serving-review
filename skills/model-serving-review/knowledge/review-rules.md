@@ -37,7 +37,10 @@ the main logic at lower indentation.
 
 **CTL-020 | MUST | Code accessing nested spec fields**
 Guard against nil panics. Presets/baseRefs mean the "full spec" isn't available until config_merge runs. Fields like
-`Router.Scheduler.Pool.Spec.ExtensionRef.Name` can be nil at any level.
+`Router.Scheduler.Pool.Spec.ExtensionRef.Name` can be nil at any level. This also covers `+optional` fields populated by
+a defaulting webhook: dereferencing them directly (`*field`) panics whenever the webhook is bypassed — envtest suites
+that don't register it, direct API writes, or a webhook outage. Use `ptr.Deref` or an explicit nil guard; a default
+marker is not a presence guarantee at the point the controller reads the field.
 
 **CTL-030 | MUST | Event emission**
 Never produce events on success or no-op. This causes high API server load and triggers client-side rate limiting.
@@ -61,7 +64,12 @@ handling its own deletions independently.
 
 **CTL-080 | SHOULD | Status condition updates**
 Use non-terminal conditions for observability instead of event floods. Continuous states (scaling status) are
-conditions, not events.
+conditions, not events. Condition-writing code must also: carry the current `observedGeneration`, since a `Ready=True`
+condition from a previous generation is worse than no condition at all; write status only on a semantic change, so
+requeues don't produce a write storm; use stable, machine-readable `reason` values, with *different* reasons for
+semantically different failures (`ModelNameMismatch` vs `ModelNameAmbiguous`), because a shared reason makes
+programmatic handling impossible; and surface the reason and message from the first failing subcondition on the
+top-level `Ready` condition, so users don't have to walk every condition to find the cause.
 
 **CTL-090 | SHOULD | Reconciler structure**
 Have a top-level `finalize(ctx, original)` method for cleanup to prevent the `else` branch from growing organically with
@@ -77,6 +85,38 @@ changes in modelcar/init container commands (RHOAIENG-71245), (2) annotation inj
 RHOAIENG-59339), (3) config value changes that propagate to pod specs (RHOAIENG-59268), (4) security context changes (
 readOnlyRootFilesystem, runAsNonRoot), (5) new labels/annotations added to pod metadata, (6) entrypoint script
 formatting changes. (26+ Blockers across BUG-010, BUG-030, BUG-120)
+
+**CTL-110 | MUST | Reconcile failures and retry results**
+Return the error on reconciliation failure so controller-runtime applies its rate limiter. Do not replace a retryable
+failure with `ctrl.Result{Requeue: true}, nil` or a timed successful result — that discards the error, loses the
+failure signal from logs and metrics, and substitutes a flat retry interval for exponential backoff. Use `Requeue` only
+when no error occurred but async work is still in progress, and `RequeueAfter` only for intentional wall-clock polling.
+Note for reviewers: when the returned error is non-nil, controller-runtime **ignores** the `ctrl.Result` entirely, so
+`return ctrl.Result{Requeue: true}, err` is redundant but harmless — it is not the violation. The violation is
+swallowing the error.
+
+**CTL-120 | SHOULD | Uncached or direct List operations over large collections**
+Direct reads that bypass the informer cache — `APIReader`, a raw clientset, REST calls — over collections that can grow
+unbounded must be paginated (`client.Limit` / the `client-go` pager) or replaced by an indexed cached read. An
+unpaginated list of a large collection materializes the whole set in the controller and in the API server at once, and
+concurrent unpaginated lists are a known cause of API server memory spikes. Do **not** flag a cache-backed
+controller-runtime `List` for missing `Limit`: it is served from the informer cache, not the API server, and the cache
+is the mitigation. Only raise the `limit` plus `resourceVersion=0` interaction (where the API server ignores pagination,
+fixed in Kubernetes 1.34) when the project's supported cluster versions actually include the affected releases.
+
+**CTL-130 | MUST | Workload-affecting derived resource identities**
+Names and identities that flow into pod templates or managed workload resources must be order-independent. Deriving
+them from a list index (`fmt.Sprintf("vol-%d", i)`) means reordering an unrelated list entry in the CR renames the
+resource, which changes the pod template hash and restarts the workload for no reason. Sort by a stable semantic key
+(name, UID) before processing, and derive the identity from that key rather than the position. Focused companion to
+CTL-100: the test is "would renaming this derived resource trigger a rollout?"
+
+**CTL-150 | MUST | Finalizer lifecycle**
+A diff that adds a finalizer must guarantee its removal. On the deletion path, cleanup must be idempotent, must
+tolerate the external resource already being absent (treat `IsNotFound` as success), and the finalizer must be removed
+even when cleanup was a no-op. A finalizer whose removal is gated behind a cleanup step that can fail permanently wedges
+object deletion and blocks namespace deletion, requiring manual operator recovery. Also flag the reverse: removing the
+finalizer before cleanup completes, which leaks the external resource.
 
 ## Upstream Sync & ODH Overlay Discipline (SYNC-*)
 
@@ -337,3 +377,19 @@ injection. This gives consistent UX and prevents restart-on-upgrade.
 **CODE-040 | SHOULD | Default configuration**
 Modify default configurations in the known location rather than injecting overrides arbitrarily. If there will ever be a
 better alternative, arbitrary injection locks you in with no override path.
+
+**CODE-050 | SHOULD | Comparing resources whose fields are partially owned by others**
+When deciding whether an owned resource needs an update, use a subset comparison (`equality.Semantic.DeepDerivative`)
+for the fields the controller actually owns. Exact comparison (`DeepEqual`, `maps.Equal`) against a resource that
+webhooks, other controllers, or users also mutate produces a permanent update loop: the controller reverts their
+fields, they re-add them, and reconciliation never converges. Use exact comparison only where a removal is semantically
+meaningful (for example backendRefs dropped because a group member was deleted). For labels and annotations, combine a
+subset check with an explicit stale check for the specific controller-managed keys, so removals of those keys are still
+detected without fighting user-added ones. Establish who owns the compared fields before filing a finding.
+
+**CODE-060 | SHOULD | Inspecting `corev1.EnvVar` intent**
+`EnvVar.Value` is empty when the variable is sourced via `ValueFrom` (`configMapKeyRef`, `secretKeyRef`,
+`fieldRef`). Code that detects user intent by inspecting only `.Value` — "skip injection if the user already set flag
+X" — silently takes the wrong branch for any user who sourced that variable from a ConfigMap or Secret. Handle
+`ValueFrom` explicitly, or use a dedicated API field or annotation for the escape hatch instead of inferring intent
+from env values. Not a finding when the code intentionally accepts literal values only and validates that contract.

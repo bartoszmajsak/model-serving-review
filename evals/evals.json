@@ -668,6 +668,101 @@
         "min_findings": 1,
         "max_findings": 3
       }
+    },
+    {
+      "id": "ctl-110-swallowed-error",
+      "category": "controller",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "Reconcile failures replaced with ctrl.Result{RequeueAfter}/{Requeue}, nil - the error is discarded so backoff and error metrics are lost.",
+      "expected_output": "Should flag CTL-110 for swallowing reconcile errors behind a successful requeue.",
+      "assertions": {
+        "expected_rules": [
+          "CTL-110"
+        ],
+        "expected_files": [
+          "pkg/controller/llmisvc/router.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "ctl-130-index-derived-name",
+      "category": "controller",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "Volume names derived from a list index reach the engine pod template, so reordering adapters renames volumes and restarts the workload.",
+      "expected_output": "Should flag CTL-130 for order-dependent derived names reaching a pod template.",
+      "assertions": {
+        "expected_rules": [
+          "CTL-130"
+        ],
+        "expected_files": [
+          "pkg/controller/llmisvc/workload.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "ctl-150-stuck-finalizer",
+      "category": "controller",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "Finalizer removal is gated behind a Get+Delete that errors when the managed route is already gone, wedging object and namespace deletion.",
+      "expected_output": "Should flag CTL-150 for a finalizer whose removal is not guaranteed on the deletion path.",
+      "assertions": {
+        "expected_rules": [
+          "CTL-150"
+        ],
+        "expected_files": [
+          "pkg/controller/llmisvc/controller.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "code-060-envvar-value-only",
+      "category": "controller",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "Escape-hatch detection inspects EnvVar.Value only, so a user sourcing VLLM_ARGS from a ConfigMap or Secret is treated as not having set it.",
+      "expected_output": "Should flag CODE-060 for intent detection that ignores ValueFrom.",
+      "assertions": {
+        "expected_rules": [
+          "CODE-060"
+        ],
+        "expected_files": [
+          "pkg/controller/llmisvc/engine_args.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "negative-ctl-110-result-with-error",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "Precision check: `return ctrl.Result{Requeue: true}, err` is redundant but not a violation (result is ignored when err != nil), and a cache-backed client.List without Limit is not a pagination problem.",
+      "expected_output": "Should NOT flag CTL-110 or CTL-120. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "CTL-110",
+          "CTL-120"
+        ],
+        "max_findings": 1
+      }
+    },
+    {
+      "id": "negative-ctl-150-clean-finalizer",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "Precision check: correct finalizer lifecycle - cleanup tolerates IsNotFound and the finalizer is removed unconditionally afterwards.",
+      "expected_output": "Should NOT flag CTL-150. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "CTL-150"
+        ],
+        "max_findings": 1
+      }
     }
   ]
 }

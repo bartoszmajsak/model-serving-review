@@ -102,6 +102,188 @@ func reconcileHPA(...) {
 > "The logic assumes 2 actuators. Structure it in a way that is extensible, with individual functions handling deletions
 > of their own objects."
 
+### Cached vs Uncached List (CTL-120)
+
+**Trigger:** a diff adds a `List` call.
+
+```go
+// BAD: uncached, cluster-wide, unbounded — materializes every pod in the cluster
+var pods corev1.PodList
+if err := r.APIReader.List(ctx, &pods); err != nil { ... }
+
+// GOOD: page it
+pager := pager.New(func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
+    return clientset.CoreV1().Pods("").List(ctx, opts)
+})
+pager.PageSize = 500
+
+// GOOD: or scope it and let the cache serve it
+var pods corev1.PodList
+err := r.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{...})
+
+// NOT A FINDING: cache-backed List without Limit
+var routes gatewayapi.HTTPRouteList
+err := r.List(ctx, &routes, client.InNamespace(llmSvc.Namespace))
+```
+
+**Applicability boundary:** the rule is about *uncached* reads — `APIReader`, raw clientsets, REST. The
+controller-runtime client reads from the informer cache, so a missing `Limit` there is not a defect. Flag only
+collections that can realistically be large.
+
+**Why:** unpaginated lists of large collections spike memory in both the controller and the API server, and several
+controllers doing it concurrently has taken API servers down.
+
+### Subset vs Exact Comparison (CODE-050)
+
+**Trigger:** a diff compares a desired resource against the current one to decide whether to update.
+
+```go
+// BAD: the gateway controller adds status-derived fields and a webhook injects
+// annotations. DeepEqual sees drift every reconcile and updates forever.
+if !equality.Semantic.DeepEqual(desired.Spec, current.Spec) {
+    return r.Update(ctx, desired)
+}
+
+// GOOD: compare only what this controller owns
+if !equality.Semantic.DeepDerivative(desired.Spec, current.Spec) {
+    return r.Update(ctx, desired)
+}
+
+// GOOD for labels: subset check, plus a stale check for the keys we manage
+needsUpdate := !equality.Semantic.DeepDerivative(desired.Labels, current.Labels)
+for _, k := range managedLabelKeys {
+    if _, want := desired.Labels[k]; !want {
+        if _, have := current.Labels[k]; have {
+            needsUpdate = true // we removed it, so it must go
+        }
+    }
+}
+```
+
+**Applicability boundary:** exact comparison is correct when the controller owns every compared field, or when removal
+is semantic - dropping a backendRef because a group member was deleted must be detected. Establish ownership first;
+this is not a blanket "always use DeepDerivative" rule.
+
+**Why:** an update loop against a field someone else owns burns API quota, floods the audit log, and can restart
+workloads on every reconcile.
+
+### EnvVar Intent Detection (CODE-060)
+
+**Trigger:** controller code branches on the value of an existing `corev1.EnvVar`.
+
+```go
+// BAD: a user who sets VLLM_ARGS from a ConfigMap gets Value == "", so the
+// controller decides they "didn't set it" and overwrites their configuration
+for _, e := range container.Env {
+    if e.Name == "VLLM_ARGS" && e.Value != "" {
+        return // user opted out, don't inject
+    }
+}
+
+// GOOD: presence is the signal, not the literal value
+for _, e := range container.Env {
+    if e.Name == "VLLM_ARGS" && (e.Value != "" || e.ValueFrom != nil) {
+        return
+    }
+}
+
+// BETTER: don't infer intent from env at all
+if llmSvc.Spec.Template.DisableArgInjection {
+    return
+}
+```
+
+**Applicability boundary:** not a finding when the contract is explicitly literal-only and validated as such, for
+example a numeric tuning value the controller parses and range-checks.
+
+**Why:** `Value` and `ValueFrom` are mutually exclusive in the Kubernetes API. Any check that reads only `Value`
+silently misclassifies every Secret- or ConfigMap-sourced variable, and the failure is invisible until a user reports
+their setting being ignored.
+
+### Swallowed Error vs Returned Error (CTL-110)
+
+**Trigger:** a diff changes what `Reconcile` returns on a failure path.
+
+```go
+// BAD: the error is discarded. Logs and metrics show a successful reconcile,
+// and the flat 30s retry replaces exponential backoff.
+if err := r.reconcileRouter(ctx, llmSvc); err != nil {
+    log.Error(err, "router reconcile failed")
+    return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}
+
+// GOOD: return the error, let controller-runtime rate-limit the retry
+if err := r.reconcileRouter(ctx, llmSvc); err != nil {
+    return ctrl.Result{}, fmt.Errorf("reconciling router: %w", err)
+}
+
+// NOT A FINDING: redundant, but the result is ignored when err != nil
+return ctrl.Result{Requeue: true}, err
+```
+
+**Applicability boundary:** `Requeue: true` alongside a non-nil error does not bypass backoff — controller-runtime
+ignores `ctrl.Result` entirely when the error is non-nil. Do not report that as the violation. The violation is
+returning `nil` in place of a real failure.
+
+**Why:** a swallowed error is invisible to `controller_runtime_reconcile_errors_total`, so the failure never alerts,
+and the hand-rolled interval retries a hot dependency at a fixed rate instead of backing off.
+
+### Order-Independent Derived Names (CTL-130)
+
+**Trigger:** a name, volume, or container is derived from a loop index and reaches a pod template.
+
+```go
+// BAD: reordering spec.Model.Adapters renames every volume after the moved entry,
+// changing the pod template hash and restarting the workload
+for i, adapter := range llmSvc.Spec.Model.Adapters {
+    volumes = append(volumes, corev1.Volume{Name: fmt.Sprintf("adapter-%d", i)})
+}
+
+// GOOD: derive from a stable semantic key, after sorting for deterministic ordering
+adapters := slices.SortedFunc(slices.Values(llmSvc.Spec.Model.Adapters),
+    func(a, b Adapter) int { return strings.Compare(a.Name, b.Name) })
+for _, adapter := range adapters {
+    volumes = append(volumes, corev1.Volume{Name: "adapter-" + adapter.Name})
+}
+```
+
+**Applicability boundary:** index-derived names are fine when they never reach a workload resource - a log line, a
+metric label, or an in-memory map key does not restart pods.
+
+**Why:** same failure class as CTL-100. The user changed the order of a list, not the content, and their pods restarted.
+
+### Finalizer Removal Must Be Guaranteed (CTL-150)
+
+**Trigger:** a diff adds `controllerutil.AddFinalizer` or changes a deletion path.
+
+```go
+// BAD: cleanup errors on an already-deleted gateway, so the finalizer is never
+// removed and the object (and its namespace) can never finish deleting
+if !obj.DeletionTimestamp.IsZero() {
+    if err := r.deleteGateway(ctx, obj); err != nil {
+        return ctrl.Result{}, err
+    }
+    controllerutil.RemoveFinalizer(obj, finalizerName)
+    return ctrl.Result{}, r.Update(ctx, obj)
+}
+
+// GOOD: cleanup is idempotent, absence is success, removal always happens
+if !obj.DeletionTimestamp.IsZero() {
+    if err := r.deleteGateway(ctx, obj); client.IgnoreNotFound(err) != nil {
+        return ctrl.Result{}, fmt.Errorf("cleaning up gateway: %w", err)
+    }
+    controllerutil.RemoveFinalizer(obj, finalizerName)
+    return ctrl.Result{}, r.Update(ctx, obj)
+}
+```
+
+**Applicability boundary:** not a finding when cleanup already treats `IsNotFound` as success and the finalizer is
+removed unconditionally afterwards. The reverse is also a finding: removing the finalizer *before* cleanup completes
+leaks the external resource.
+
+**Why:** a stuck finalizer is not self-healing. The object hangs in `Terminating` forever and takes its namespace with
+it, and recovery requires an operator to hand-edit `metadata.finalizers`.
+
 ## Status Conditions
 
 ### Subcondition Aggregation (CTL-080)
