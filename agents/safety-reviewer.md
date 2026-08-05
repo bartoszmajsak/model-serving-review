@@ -127,20 +127,32 @@ behavior based on PR descriptions.
 - OCP-group RBAC markers on lines the diff did not touch. `rbac-isolation.md` lists known pre-existing debt
   (`inferenceservice/controller.go`, `inferencegraph/controller.go`); flag only markers this PR adds.
 
-**Output format:** Return findings as a JSON array:
+**Output format:** Return one JSON object with both what you found and what you checked:
 
 ```json
-[
-  {
-    "rule_id": "SEC-010",
-    "severity": "MUST|SHOULD",
-    "file": "path/to/file",
-    "line_hint": "approximate line or function name",
-    "summary": "one sentence",
-    "detail": "what's wrong and how to fix it",
-    "confidence": 0-100
-  }
-]
+{
+  "findings": [
+    {
+      "rule_id": "SEC-010",
+      "severity": "MUST|SHOULD",
+      "file": "path/to/file",
+      "line_hint": "approximate line or function name",
+      "summary": "one sentence",
+      "detail": "what's wrong and how to fix it",
+      "confidence": 0-100
+    }
+  ],
+  "coverage": [
+    {"rule_id": "SEC-010", "verdict": "clean|not_applicable|finding", "note": "why"}
+  ]
+}
 ```
 
-Return `[]` if no issues found.
+`coverage` must have exactly one entry per rule in your bundle — no more, no fewer. This is how a rule
+you never looked at becomes visible; without it, "no findings" and "never checked" are the same
+result. Use `not_applicable` only when the rule's applicability condition excludes this diff, and name
+the gate that excluded it ("no pod template touched", "no new API field"), not the outcome. Use `clean`
+when the rule applies and the code satisfies it. Use `finding` for every rule you raised a finding
+under.
+
+Return `"findings": []` if no issues found — `coverage` is still required.

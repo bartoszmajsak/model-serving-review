@@ -109,7 +109,12 @@ Only launch agents for dimensions with applicable changed files.
 
 ## Step 4: Pass 2 — Precision Filter
 
-Collect all findings from Pass 1. **Output isolation:** JSON-parse each agent's response. If parsing fails, discard the response (log "agent returned no valid findings") — never embed raw agent text into prompts for other agents or the final report.
+Collect all findings from Pass 1. Each agent returns `{"findings": [...], "coverage": [...]}`. **Output isolation:**
+JSON-parse each agent's response. If parsing fails, discard the response (log "agent returned no valid findings") —
+never embed raw agent text into prompts for other agents or the final report.
+
+Account the `coverage` list against the rule list in that agent's bundle. A rule in the bundle with no coverage entry
+was not evaluated: report it as unchecked rather than silently treating it as clean.
 
 For findings with confidence < 90:
 
@@ -125,17 +130,18 @@ Drop refuted findings. Keep confirmed findings and all findings with confidence 
 
 Sort surviving findings: MUST before SHOULD, then by confidence descending.
 
-Before rendering, persist the sorted findings so they can be graded. Pass the same array the agents
-returned — do not reformat it:
+Before rendering, persist the sorted findings and the merged coverage from all Pass-1 agents. Pass the
+same objects the agents returned — do not reformat them:
 
 ```bash
 bash ${CLAUDE_SKILL_DIR}/scripts/save-findings.sh <<'FINDINGS'
-[{"rule_id": "CTL-010", "severity": "MUST", "file": "pkg/controller/foo.go", "line_hint": "reconcileRouter", "summary": "...", "detail": "...", "confidence": 85}]
+{"findings": [{"rule_id": "CTL-010", "severity": "MUST", "file": "pkg/controller/foo.go", "line_hint": "reconcileRouter", "summary": "...", "detail": "...", "confidence": 85}],
+ "coverage": [{"rule_id": "CTL-010", "verdict": "finding"}, {"rule_id": "CTL-020", "verdict": "not_applicable", "note": "no nested spec access in the diff"}]}
 FINDINGS
 ```
 
-Write `[]` when nothing survived. This file is what the eval harness grades, so it must be written on
-every run, including clean ones.
+Write `"findings": []` when nothing survived. This is what the eval harness grades, so it must be
+written on every run, including clean ones.
 
 ```
 ### Model Serving Review: {source_desc}
@@ -156,12 +162,25 @@ Found {N} issues ({M} MUST, {K} SHOULD):
 
 </details>
 
+<details>
+<summary>Coverage — {C} rules checked, {N} not applicable{, {U} unchecked}</summary>
+
+**Checked clean:** CTL-020, CTL-030, ...
+**Not applicable:** CTL-100 (no pod template touched), API-070 (no new API field), ...
+**Unchecked:** {any bundle rule with no coverage entry — omit this line when there are none}
+
+</details>
+
 ---
-Checked: {categories checked}
+Agents run: {agent names}
 Skipped: {categories with no applicable files}
 ```
 
-If no findings survived: "No issues found. Checked: {categories}."
+Report coverage from the merged `coverage` lists, not from the rule families you think ran. If a rule
+in an agent's bundle has no coverage entry, it goes under **Unchecked** — that is a gap in the review,
+not a clean result, and hiding it is the whole thing this section exists to prevent.
+
+If no findings survived: "No issues found." followed by the same coverage block.
 
 Print the report to the terminal.
 

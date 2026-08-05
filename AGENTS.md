@@ -160,21 +160,32 @@ avoid ingesting untrusted PR descriptions.
 
 ## Output format
 
-All review agents return findings as a JSON array:
+All review agents return one object carrying both what they found and what they checked:
 
 ```json
-[
-  {
-    "rule_id": "CTL-010",
-    "severity": "MUST|SHOULD",
-    "file": "path/to/file.go",
-    "line_hint": "approximate line or function name",
-    "summary": "one sentence",
-    "detail": "what's wrong and how to fix it",
-    "confidence": 0-100
-  }
-]
+{
+  "findings": [
+    {
+      "rule_id": "CTL-010",
+      "severity": "MUST|SHOULD",
+      "file": "path/to/file.go",
+      "line_hint": "approximate line or function name",
+      "summary": "one sentence",
+      "detail": "what's wrong and how to fix it",
+      "confidence": 0-100
+    }
+  ],
+  "coverage": [
+    {"rule_id": "CTL-010", "verdict": "clean|not_applicable|finding", "note": "why"}
+  ]
+}
 ```
+
+`coverage` carries one entry per rule in the agent's bundle, and the orchestrator accounts it against
+that bundle. Without it, a rule the agent never evaluated is indistinguishable from one it evaluated
+and found clean — so a bundle rule with no coverage entry is reported as unchecked, not as clean.
+`not_applicable` must name the gate that excluded the rule, which is the same discipline the
+applicability conditions impose on the verifier.
 
 The finding-verifier returns verdicts:
 
