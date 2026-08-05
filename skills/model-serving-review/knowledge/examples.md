@@ -382,6 +382,41 @@ example a numeric tuning value the controller parses and range-checks.
 silently misclassifies every Secret- or ConfigMap-sourced variable, and the failure is invisible until a user reports
 their setting being ignored.
 
+### Merge User Overrides, Don't Replace Them (CODE-070)
+
+**Trigger:** the controller assigns a container or pod spec that a user can also supply.
+
+```go
+// BAD: the user's ClusterStorageContainer set resources, securityContext, and two
+// extra volumeMounts. All of it disappears — only the fields this function writes survive.
+initContainer.Image = params.StorageContainerSpec.Container.Image
+initContainer.Env = params.StorageContainerSpec.Container.Env
+initContainer.Resources = params.StorageContainerSpec.Container.Resources
+
+// GOOD: controller-built container is the base, the user's spec is the overlay that wins
+merged, err := utils.MergeContainerWithPatch(*initContainer, params.StorageContainerSpec.Container)
+if err != nil {
+    return fmt.Errorf("failed to merge storage container spec: %w", err)
+}
+*initContainer = merged
+```
+
+```go
+// NOT A FINDING: nothing user-settable overlaps this object
+svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: ..., Namespace: ...}}
+svc.Spec.Ports = desiredPorts
+```
+
+**Applicability boundary:** applies only where a user-facing override path for the same object exists. A child object
+the controller creates and fully owns can be assigned wholesale, and so can a field whose documented contract is
+"replaces the default".
+
+**Why:** strategic merge patch honours the list-merge keys declared on the Kubernetes types — `env` merges by name,
+`volumeMounts` by mountPath — so the user keeps everything the controller did not explicitly set. Field-by-field
+assignment silently drops the rest, and each new field added to `corev1.Container` upstream widens the hole. Two
+details the shared helper already handles: unmarshalling into a reused struct lets stale slice-element fields survive,
+and the merge can produce an env entry with both `Value` and `ValueFrom` populated, which admission rejects.
+
 ### Swallowed Error vs Returned Error (CTL-110)
 
 **Trigger:** a diff changes what `Reconcile` returns on a failure path.
@@ -981,6 +1016,48 @@ t, err := template.New("config").
 # GOOD: if the Go struct field must change, keep the old template variable
 # working via an alias or adapter in ReplaceVariables
 ```
+
+## Configuration Templates
+
+### Guard Optional Parents in llmisvcconfig Templates (CFG-050)
+
+**Trigger:** a `{{ ... }}` expression under `config/llmisvcconfig/` reaches through a pointer field of
+`LLMInferenceServiceSpec` (`Prefill`, `Parallelism`, `Router`).
+
+```yaml
+# BAD: Parallelism is *ParallelismSpec. A CR without `parallelism` makes
+# template execution fail, and the reconcile errors out rendering nothing.
+- --tensor-parallel-size={{ .Spec.Parallelism.Tensor }}
+
+# BAD: `or` evaluates its arguments — the dereference happens before the
+# default can apply, so this is not a guard despite looking like one.
+- --data-parallel-size={{ or .Spec.Parallelism.Data 1 }}
+
+# GOOD: guard the parent, then reach through it
+{{- if and .Spec.Parallelism .Spec.Parallelism.Tensor }}
+- --tensor-parallel-size={{ .Spec.Parallelism.Tensor }}
+{{- end }}
+
+# GOOD: helper takes `any` and nil-checks, so hand it an explicit nil
+{{ if .Spec.Prefill }}{{ shutdownTimeout .Spec.Prefill.Template 15 }}{{ else }}{{ shutdownTimeout nil 15 }}{{ end }}
+```
+
+```yaml
+# NOT A FINDING: config/llmisvcconfig/*-worker-data-parallel.yaml
+# This preset is only referenced by CRs that configure parallelism, so the
+# parent is guaranteed non-nil by the time the template renders.
+- --data-parallel-size={{ .Spec.Parallelism.Data }}
+```
+
+**Applicability boundary:** only templates rendered by `ReplaceVariables` — that is, files under
+`config/llmisvcconfig/`. Kustomize and Helm placeholders elsewhere in `config/` are not Go templates and are not
+rendered with `missingkey=error`. Before flagging, establish that a CR leaving the parent unset can actually select
+this config.
+
+**Why:** `ReplaceVariables` sets `Option("missingkey=error")` and renders against the live CR. A nil parent does not
+yield an empty string — it aborts execution and the reconciler returns an error, so the workload never gets created and
+the user sees a template error instead of a defaulted value. The base, decode, and prefill configs all use the guarded
+form; the unguarded ones are deliberate exceptions tied to when the preset applies.
 
 ## Testing
 

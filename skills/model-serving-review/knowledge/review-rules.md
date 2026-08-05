@@ -264,6 +264,18 @@ delta. Trim configs to the minimum — don't repeat values matching injected def
 Embed feature logic in llmisvcconfig base configs where possible. This gives prefix-based stable versioning for free and
 prevents container restarts on upgrade.
 
+**CFG-050 | MUST | Go template expressions in llmisvcconfig YAML that reach through an optional spec field**
+`ReplaceVariables` renders these templates against the live `LLMInferenceService` with `Option("missingkey=error")`.
+Optional spec fields are pointers (`Spec.Prefill`, `Spec.Parallelism`, `Spec.Router`), so `{{ .Spec.Parallelism.Tensor }}`
+on a CR that omits `parallelism` fails template execution — the reconcile returns an error and renders nothing, instead
+of falling back to a default. Guard the parent before reaching through it, the way the base configs do:
+`{{- if and .Spec.Parallelism .Spec.Parallelism.Tensor }}`, or wrap the call so the helper receives an explicit nil —
+`{{ if .Spec.Prefill }}{{ shutdownTimeout .Spec.Prefill.Template 15 }}{{ else }}{{ shutdownTimeout nil 15 }}{{ end }}`.
+`{{ or .Spec.Parallelism.Data 1 }}` is NOT a guard: `or` evaluates its arguments, so the dereference happens before the
+default can apply. Not a finding in a preset that is only selected when the parent is set — the
+`*-worker-data-parallel.yaml` configs dereference `.Spec.Parallelism` unguarded on purpose, because a CR without
+parallelism never references them. Establish which CRs can select the config before flagging.
+
 ## Security & TLS (SEC-*)
 
 **SEC-010 | MUST | New sidecar or service**
@@ -547,9 +559,13 @@ and command strings, see CTL-100. (26 bugs, 9 Blockers)
 Prefer readability over DRY for init/entrypoint scripts. Overly templated bash scripts (gotemplate in bash) are hard to
 debug. Push back if readability suffers.
 
-**CODE-020 | SHOULD | Owner references**
+**CODE-020 | SHOULD | Owner references and other multi-writer list entries**
 Don't assume the first owner reference is "ours". Loop through owner refs and check by kind/name. Guard array access
-with length checks.
+with length checks. The same applies to any status list with one entry per writer — `InferencePool.Status.Parents`
+carries an entry per Gateway controller that has processed the pool, so reading `Parents[0]` attributes another
+controller's Accepted condition to ours. Filter to the entries this controller owns first, as
+`filterRelevantV1Parents` / `filterRelevantV1Alpha2Parents` do in `pkg/controller/v1alpha2/llmisvc/`, then evaluate
+conditions on the filtered set — and treat an empty filtered set as "not yet accepted", not as a failure.
 
 **CODE-030 | SHOULD | Sidecar configuration**
 Use the llmisvcconfig mechanism (well-known configs with prefix versioning) for sidecar injection rather than arbitrary
@@ -574,3 +590,16 @@ detected without fighting user-added ones. Establish who owns the compared field
 X" — silently takes the wrong branch for any user who sourced that variable from a ConfigMap or Secret. Handle
 `ValueFrom` explicitly, or use a dedicated API field or annotation for the escape hatch instead of inferring intent
 from env values. Not a finding when the code intentionally accepts literal values only and validates that contract.
+
+**CODE-070 | MUST | Controller-built container or pod spec that overlaps a user-settable field**
+When the user can supply their own version of a spec the controller also builds — a `ClusterStorageContainer` container,
+a ServingRuntime container the InferenceService overrides, a `spec.template` on a worker or router — assigning the
+controller's value replaces the user's whole object, silently dropping every field they set that the controller does not
+happen to populate. Merge instead of assign: `utils.MergeContainerWithPatch(controllerBuilt, userProvided)` applies the
+user's spec as a strategic merge patch over the controller's, so `env` merges by name and `volumeMounts` by mountPath
+rather than the shorter list winning wholesale. Note the argument order — the controller's container is the base, the
+user's is the overlay that wins on conflict. Two traps the helper already handles and hand-rolled merges usually do not:
+unmarshalling into a reused struct lets stale slice-element fields survive, and strategic merge can leave an env entry
+with both `Value` and `ValueFrom` populated, which admission rejects. Not a finding when the controller genuinely owns
+the entire object with no user-facing override path, or when replacement is the documented contract of an explicit
+override field.

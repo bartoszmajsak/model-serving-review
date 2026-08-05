@@ -39,6 +39,19 @@ of which are config files. Do not duplicate them.
 - Check resource naming prefixes (NAM-010, NAM-020).
 - Check webhook name stability (NAM-020).
 - Check if new overlays need kserve-module integration (XREPO-020).
+- CFG-050: for every `{{ ... }}` expression added or changed under `config/llmisvcconfig/`, identify the chain of field
+  accesses and check whether any link is an optional pointer on `LLMInferenceServiceSpec`. Confirm pointer-ness by
+  reading the type — `bash $scripts_dir/repo.sh $work_dir grep -n 'Prefill\|Parallelism\|Router'
+  pkg/apis/serving/v1alpha2/llm_inference_service_types.go`. An unguarded dereference is only safe if the config cannot
+  be selected by a CR that leaves the parent unset; the `*-worker-data-parallel.yaml` presets are the standing example
+  of that exemption. Treat `{{ or .A.B default }}` as an unguarded dereference of `.A`, not as a guard.
+
+**Do NOT flag these — established false positives:**
+
+- `{{ .Spec.X.Y }}` in a `*-worker-data-parallel.yaml` or other preset that only applies when `X` is configured.
+- A dereference whose parent is a non-pointer struct field or a map guaranteed by defaulting on the CRD.
+- Template expressions in files outside `config/llmisvcconfig/` — those are kustomize/helm syntax, not `ReplaceVariables`
+  input, and are not rendered with `missingkey=error`.
 
 **Output format:** Return findings as a JSON array:
 

@@ -42,6 +42,8 @@ Launched when `controller_files` is non-empty — controller and reconciler code
 - No restart on upgrade (CTL-100) — the #1 Blocker source; checks whether controller changes alter pod template hashes
 - Retry semantics (CTL-110) — a swallowed error replaced by a requeue discards backoff and the failure signal
 - Finalizer lifecycle (CTL-150) — cleanup must be idempotent and removal must be guaranteed
+- Multi-writer list entries (CODE-020) — ownerReferences and per-controller status parents; don't read index 0
+- Merge over replace (CODE-070) — user-settable container specs go through `utils.MergeContainerWithPatch`
 
 ### api-reviewer
 
@@ -74,6 +76,8 @@ Reviews kustomize configuration, overlays, and naming under `config/`, `*.yaml`,
 - Image injection (CFG-020, XREPO-010) — images in params.env with operator companion PR
 - Upstream sync discipline (SYNC-010..030) — no inline patches to upstream-synced files
 - Resource naming (NAM-\*) — `kserve-` prefix, webhook name stability
+- Template nil guards (CFG-050) — `config/llmisvcconfig/` renders with `missingkey=error`, so an unguarded
+  dereference of an optional spec pointer aborts the reconcile
 
 The Go-side ODH rules (SYNC-040..070) belong to safety-reviewer, not here.
 

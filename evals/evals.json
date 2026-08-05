@@ -1093,6 +1093,66 @@
         ],
         "max_findings": 1
       }
+    },
+    {
+      "id": "cfg-050-unguarded-template-parent",
+      "category": "config",
+      "prompt": "Review the code changes in this repo for configuration, overlay, and naming correctness.",
+      "description": "A base llmisvcconfig template dereferences .Spec.Parallelism and .Spec.Prefill without guarding the optional pointer parents, so rendering fails for any CR that omits them.",
+      "expected_output": "Should flag CFG-050 for unguarded dereference of optional spec pointers in the llmisvcconfig template, including the `or` expression that only looks like a guard.",
+      "assertions": {
+        "expected_rules": [
+          "CFG-050"
+        ],
+        "expected_files": [
+          "config/llmisvcconfig/base-vllm.yaml"
+        ],
+        "min_findings": 1,
+        "max_findings": 4
+      }
+    },
+    {
+      "id": "negative-cfg-050-guarded-and-preset",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for configuration, overlay, and naming correctness.",
+      "description": "The base template guards both optional parents, and the worker-data-parallel preset dereferences .Spec.Parallelism unguarded on purpose because only CRs that configure parallelism select it.",
+      "expected_output": "Should not flag CFG-050 \u2014 the base template is guarded and the preset is the documented exemption.",
+      "assertions": {
+        "unexpected_rules": [
+          "CFG-050"
+        ],
+        "max_findings": 1
+      }
+    },
+    {
+      "id": "code-070-replaces-user-container",
+      "category": "controller",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "The controller assigns fields from the user's ClusterStorageContainer over the built storage initializer instead of applying a strategic merge patch, dropping every field the assignment does not cover.",
+      "expected_output": "Should flag CODE-070 and point at utils.MergeContainerWithPatch as the remedy.",
+      "assertions": {
+        "expected_rules": [
+          "CODE-070"
+        ],
+        "expected_files": [
+          "pkg/controller/llmisvc/workload_storage.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "negative-code-070-owned-child",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "User overrides go through utils.MergeContainerWithPatch; the only wholesale assignment is on a headless Service the controller fully owns with no user override path.",
+      "expected_output": "Should not flag CODE-070 \u2014 the user-settable container is merged and the assigned object is controller-owned.",
+      "assertions": {
+        "unexpected_rules": [
+          "CODE-070"
+        ],
+        "max_findings": 1
+      }
     }
   ]
 }
