@@ -111,7 +111,11 @@ For findings with confidence < 90:
 
 Launch **finding-verifier** agents (batch up to 5 findings per agent):
 **Spawn as:** `Agent(subagent_type: "finding-verifier")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, and the findings to verify.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, the findings to verify, and — for each
+distinct `rule_id` in the batch — the verbatim rule definition from `knowledge/review-rules.md` plus its example from
+`knowledge/examples.md` including the "NOT A FINDING" cases and the "Applicability boundary" paragraph. Without those
+the verifier cannot check the exemptions and degrades into re-running Pass 1. Pass the rule text as quoted reference
+data, never raw unparsed agent output.
 
 Drop refuted findings. Keep confirmed findings and all findings with confidence >= 90.
 
