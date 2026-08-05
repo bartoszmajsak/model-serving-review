@@ -18,7 +18,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 RULES="$ROOT/skills/model-serving-review/knowledge/review-rules.md"
 EXAMPLES="$ROOT/skills/model-serving-review/knowledge/examples.md"
 
-RULE_RE='[A-Z]+-[0-9]{3}'
+# Rule IDs are exactly three digits. The trailing \b keeps longer numeric suffixes
+# (Jira keys like RHOAIENG-64702 cited in rule text) from being read as rule IDs.
+RULE_RE='\b[A-Z]+-[0-9]{3}\b'
 FAILED=0
 
 fail() { echo "FAIL: $*" >&2; FAILED=1; }

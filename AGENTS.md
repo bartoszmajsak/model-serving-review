@@ -44,6 +44,10 @@ Launched when `controller_files` is non-empty — controller and reconciler code
 - Finalizer lifecycle (CTL-150) — cleanup must be idempotent and removal must be guaranteed
 - Multi-writer list entries (CODE-020) — ownerReferences and per-controller status parents; don't read index 0
 - Merge over replace (CODE-070) — user-settable container specs go through `utils.MergeContainerWithPatch`
+- Ownership across scopes (CTL-160) — a namespaced owner cannot own a cluster-scoped child (leaks), and a
+  cross-namespace ownerRef gets the child deleted
+- Package-level mutable state (CODE-080) — reconcilers run concurrently; inject config at construction instead
+- Watch scope (CTL-120) — a new `Watches`/`Owns` on Secret, ConfigMap, or Pod needs a predicate or a selector
 
 ### api-reviewer
 

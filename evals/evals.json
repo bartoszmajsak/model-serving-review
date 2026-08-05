@@ -1153,6 +1153,66 @@
         ],
         "max_findings": 1
       }
+    },
+    {
+      "id": "ctl-160-cross-scope-owner",
+      "category": "controller",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "A namespaced InferenceService is set as controller owner of a cluster-scoped ClusterRoleBinding (unresolvable ownerRef, never GC'd) and the controller registers Owns(&corev1.Namespace{}), a watch that can never fire.",
+      "expected_output": "Should flag CTL-160 for the cross-scope owner reference and for the cluster-scoped Owns registration.",
+      "assertions": {
+        "expected_rules": [
+          "CTL-160"
+        ],
+        "expected_files": [
+          "internal/controller/isvc_rbac.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 4
+      }
+    },
+    {
+      "id": "negative-ctl-160-same-scope-owner",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "The namespaced RoleBinding gets an ownerRef within the same namespace, and the cluster-scoped ClusterRoleBinding is cleaned up explicitly instead of relying on GC.",
+      "expected_output": "Should not flag CTL-160 \u2014 no ownership crosses a namespace or scope boundary.",
+      "assertions": {
+        "unexpected_rules": [
+          "CTL-160"
+        ],
+        "max_findings": 1
+      }
+    },
+    {
+      "id": "code-080-package-level-race",
+      "category": "controller",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "Reconcile lazily writes a package-level namespace variable and a package-level map, both unguarded, and reads os.Getenv on every call.",
+      "expected_output": "Should flag CODE-080 for package-level mutable state written from concurrent reconciles.",
+      "assertions": {
+        "expected_rules": [
+          "CODE-080"
+        ],
+        "expected_files": [
+          "internal/controller/servingruntime_controller.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "negative-code-080-injected-config",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for controller/reconciler correctness.",
+      "description": "Namespaces are immutable reconciler fields injected at construction, the one package-level slice is assigned at declaration and only read, and the shared discovery cache uses RWMutex with double-checked locking.",
+      "expected_output": "Should not flag CODE-080 \u2014 no unguarded write is reachable from a reconcile path.",
+      "assertions": {
+        "unexpected_rules": [
+          "CODE-080"
+        ],
+        "max_findings": 1
+      }
     }
   ]
 }

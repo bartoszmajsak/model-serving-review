@@ -163,6 +163,15 @@ controller-runtime `List` for missing `Limit`: it is served from the informer ca
 is the mitigation. Only raise the `limit` plus `resourceVersion=0` interaction (where the API server ignores pagination,
 fixed in Kubernetes 1.34) when the project's supported cluster versions actually include the affected releases.
 
+The cache being the mitigation is also what makes what you put in it worth reviewing. A new `Watches`/`Owns` on a
+high-cardinality built-in type (`Secret`, `ConfigMap`, `Pod`) makes the manager cache every such object in the cluster
+and wakes the reconciler on every unrelated change. Scope it: a `builder.WithPredicates(...)` on the watch, a label
+selector, or `cache.ByObject` in the manager options. A filter that lives in the event handler instead of a predicate
+does not help — the event has already been delivered and the handler usually does a `client.Get` before rejecting it.
+Same for discovery-by-listing: an unfiltered cluster-wide `List` of a type the controller does not manage, used to find
+namespaces or peers, should be a label-scoped list of the objects the controller *does* manage, which also shrinks the
+RBAC it needs.
+
 **CTL-130 | MUST | Workload-affecting derived resource identities**
 Names and identities that flow into pod templates or managed workload resources must be order-independent. Deriving
 them from a list index (`fmt.Sprintf("vol-%d", i)`) means reordering an unrelated list entry in the CR renames the
@@ -182,12 +191,32 @@ failure (a read of a peer resource that times out, a conflict, a throttled API c
 the reconciler retry with the finalizer still in place; forcing removal there is the leak. A permanent one (the
 external resource is gone, the referenced object no longer exists, the credentials are deleted) must be treated as
 cleanup success. The defect is a cleanup path that treats a permanent condition as a failure, not one that retries a
-transient condition.
+transient condition. (RHOAIENG-64703: the ISVC finalizer was removed despite cleanup errors, orphaning cluster-scoped
+resources — which is also why CTL-160 matters here: a cluster-scoped child cannot be garbage-collected by owner
+reference, so the finalizer is the only thing that cleans it up.)
+
+**CTL-160 | MUST | Owner references and `Owns()` across namespace or scope boundaries**
+Kubernetes garbage collection does not support cross-scope or cross-namespace ownership, and both directions fail
+silently in a way that is invisible at review time unless you check the scopes:
+
+- A **cluster-scoped dependent with a namespaced owner** (a ClusterRole/ClusterRoleBinding/Namespace owned by an
+  InferenceService) has an unresolvable owner reference. It is never garbage-collected and leaks on every delete. Such
+  children need an explicit finalizer-driven cleanup instead — see CTL-150.
+- A **namespaced dependent whose owner lives in a different namespace** has its owner reference treated as absent, so
+  GC deletes the dependent once all owners are considered absent. This is the dangerous direction: the object
+  disappears at an unpredictable time rather than leaking.
+- `Owns(&corev1.Namespace{})` or any `Owns` on a cluster-scoped type from a namespaced controller registers a full
+  informer for that type and can never fire, because no object of that type will ever carry the owner reference. It is
+  cost with no signal. Use `Watches` with an explicit mapping function if the controller genuinely needs those events.
+
+Check the scope of both sides before flagging: `SetControllerReference` returns an error for the cluster-scoped case, so
+an ignored error there is the tell. Not a finding when both owner and dependent are cluster-scoped, or both are
+namespaced and in the same namespace.
 
 ## Upstream Sync & ODH Overlay Discipline (SYNC-*)
 
 **The midstream repo owns the detailed version of these rules.** `opendatahub-io/kserve` carries a maintained ruleset
-at `.rules/` (present on `odh-master` and the release branches, absent upstream). When those files exist in `work_dir`,
+at `.rules/` (present on the midstream and release branches, absent upstream). When those files exist in `work_dir`,
 they are authoritative: they carry concrete detection signals, exemption lists, and pre-existing-tech-debt lists that
 this rubric cannot keep in sync from another repository. Read them and apply them; the SYNC rules below exist to route
 the diff to them and to state the severity, not to restate their content.
@@ -445,7 +474,11 @@ Be specific: `llm-isvc` not just `llm`. Consistency with relabelings and other r
 
 **MIG-010 | MUST | Changes to propagated labels/annotations**
 Top-level `.metadata` label/annotation propagation causes unintended restarts/rollouts when unrelated labels change.
-Keep propagation scoped to explicit workload-level labels.
+Keep propagation scoped to explicit workload-level labels. Copying the parent's whole annotation map onto a derived
+resource is the common form: it drags along `kubectl.kubernetes.io/last-applied-configuration`, controller-owned keys,
+and anything a user or another controller adds later, and nothing ever removes them. Propagate a named allowlist. If
+the controller does own every annotation on the child, pair the fix with exact-match comparison so stale keys are
+actually stripped (CODE-050).
 
 **MIG-020 | MUST | Protocol or API version changes**
 Can't assume all services run the latest version. Check the component version (similar to scheduler migration logic) and
@@ -603,3 +636,19 @@ unmarshalling into a reused struct lets stale slice-element fields survive, and 
 with both `Value` and `ValueFrom` populated, which admission rejects. Not a finding when the controller genuinely owns
 the entire object with no user-facing override path, or when replacement is the documented contract of an explicit
 override field.
+
+**CODE-080 | MUST | Package-level mutable state reachable from a reconciler**
+Reconcilers run concurrently — several controllers share one manager process, and each runs `MaxConcurrentReconciles`
+goroutines. A package-level `var` that is written anywhere outside `init()` is therefore a data race, and the two shapes
+that keep recurring are a namespace or config value cached on first use, and a lazily-populated discovery map. Both
+panic or serve corrupted state under load, and neither is caught by tests that reconcile one object at a time.
+
+Prefer removing the state over locking it: resolve the value once at construction and store it as an immutable field on
+the reconciler struct, injected from `main.go`. That also makes the dependency explicit and testable. Where a
+process-wide cache genuinely is the right design (an API discovery result), guard every access with `sync.RWMutex` and
+double-checked locking, not just the write.
+
+Related tell: `os.Getenv` inside `Reconcile` or inside a watch callback. Environment is fixed for the process lifetime,
+so reading it per call is both wasted work and the usual reason someone introduced the mutable package variable in the
+first place. Not a finding for `const`, for a `var` assigned only in `init()` or at declaration, or for values that are
+genuinely per-reconcile.

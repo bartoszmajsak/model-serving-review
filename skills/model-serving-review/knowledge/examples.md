@@ -382,6 +382,94 @@ example a numeric tuning value the controller parses and range-checks.
 silently misclassifies every Secret- or ConfigMap-sourced variable, and the failure is invisible until a user reports
 their setting being ignored.
 
+### Ownership Cannot Cross Scopes (CTL-160)
+
+**Trigger:** the diff adds an owner reference or an `Owns(...)` registration.
+
+```go
+// BAD: ClusterRoleBinding is cluster-scoped, isvc is namespaced. The owner
+// reference is unresolvable, GC never collects it, and every ISVC delete
+// leaks one. SetControllerReference returns an error here that is dropped.
+_ = controllerutil.SetControllerReference(isvc, crb, r.Scheme)
+
+// GOOD: cluster-scoped children are cleaned up by the finalizer, not by GC
+if err := r.deleteClusterRoleBindingsFor(ctx, isvc); err != nil {
+    return err // transient failure: keep the finalizer, retry (CTL-150)
+}
+```
+
+```go
+// BAD: no Namespace will ever carry an ownerRef to a namespaced InferenceService,
+// so this watch cannot fire — it only adds a full Namespace informer
+return ctrl.NewControllerManagedBy(mgr).
+    For(&kservev1beta1.InferenceService{}).
+    Owns(&corev1.Namespace{}).
+    Complete(r)
+
+// GOOD: if the controller really needs Namespace events, map them explicitly
+    Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.isvcsInNamespace),
+        builder.WithPredicates(predicate.NewPredicateFuncs(hasServingLabel))).
+```
+
+**Applicability boundary:** not a finding when both sides are cluster-scoped, or both namespaced in the same namespace.
+Resolve the actual scope of the child type before flagging — `ClusterRole`, `ClusterRoleBinding`, `Namespace`, and CRDs
+are the ones that come up in this codebase.
+
+**Why:** the two failure directions are opposite and both silent. A cluster-scoped dependent with a namespaced owner has
+an unresolvable owner reference and is never garbage-collected (RHOAIENG-64703 orphaned exactly these). A namespaced
+dependent whose owner is in another namespace has that owner treated as absent, so GC deletes the dependent at an
+unpredictable later time. Neither shows up in a test that creates and deletes one object.
+
+### Package-Level State Under Concurrent Reconciles (CODE-080)
+
+**Trigger:** a package-level `var` written outside `init()`, or `os.Getenv` inside a reconcile path.
+
+```go
+// BAD: written by every Reconcile goroutine, read by watch callbacks. Race.
+var controllerNamespace string
+
+func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    controllerNamespace = os.Getenv("POD_NAMESPACE")
+    ...
+}
+
+// GOOD: resolved once in main.go, immutable field, explicit dependency
+type ServingRuntimeReconciler struct {
+    client.Client
+    ControllerNamespace string
+    MonitoringNamespace string
+}
+```
+
+```go
+// GOOD: a genuine process-wide cache, guarded on both paths
+var (
+    gvResourcesCacheMu sync.RWMutex
+    gvResourcesCache   map[string]*metav1.APIResourceList
+)
+
+func resourcesFor(gv string) *metav1.APIResourceList {
+    gvResourcesCacheMu.RLock()
+    if r, ok := gvResourcesCache[gv]; ok {
+        gvResourcesCacheMu.RUnlock()
+        return r
+    }
+    gvResourcesCacheMu.RUnlock()
+    gvResourcesCacheMu.Lock()
+    defer gvResourcesCacheMu.Unlock()
+    // re-check: another goroutine may have populated it while we upgraded
+    ...
+}
+```
+
+**Applicability boundary:** `const`, a `var` assigned only at declaration or in `init()`, and genuinely per-reconcile
+locals are all fine. The rule needs a write on a path a reconciler can reach.
+
+**Why:** one manager process runs many controllers, and each runs `MaxConcurrentReconciles` goroutines. Tests that
+reconcile a single object serially never hit it; production does, and the symptom is a map-write panic or a namespace
+value that silently belongs to a different request. Injecting the value at construction removes the race instead of
+locking it, and makes the reconciler testable without environment variables.
+
 ### Merge User Overrides, Don't Replace Them (CODE-070)
 
 **Trigger:** the controller assigns a container or pod spec that a user can also supply.
