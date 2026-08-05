@@ -208,8 +208,9 @@ bash evals/run-evals.sh
 cd /tmp/eval-fixture-ctl-010-deep-nesting-XXXXXX
 /model-serving-review --base HEAD~1
 
-# 3. Collect its findings — the skill writes them in the grader's schema
+# 3. Collect its findings and coverage — the skill writes both in the grader's schema
 cp /tmp/model-serving-findings.json $RESULTS_DIR/ctl-010-deep-nesting/output.json
+cp /tmp/model-serving-coverage.json $RESULTS_DIR/ctl-010-deep-nesting/coverage.json
 
 # 4. Grade results
 bash evals/grade-results.sh $RESULTS_DIR
@@ -217,7 +218,8 @@ bash evals/grade-results.sh $RESULTS_DIR
 
 Step 2 is the only manual part. The skill writes `/tmp/model-serving-findings.json` on every run
 (including clean ones, as `[]`), so step 3 is a copy rather than a transcription of the report table.
-The path is fixed, so run fixtures one at a time.
+The path is fixed, so run fixtures one at a time. `coverage.json` is only needed by fixtures that
+assert `expected_coverage`; copying it always is cheaper than remembering which ones do.
 
 ### How fixtures work
 
@@ -233,6 +235,9 @@ The grader (`grade-results.sh`) checks the skill's JSON output against assertion
 - **Precision** — did it avoid flagging unexpected rules?
 - **File match** — did it identify the correct file?
 - **Finding count** — is the count within the expected min/max bounds?
+- **Coverage** — did the agent actually evaluate the rules in `expected_coverage`? Every other check
+  above is satisfied by an agent that skipped the rule entirely; this one is not. A rule that comes
+  back `not_applicable`, or that is missing from `coverage.json` altogether, fails the assertion.
 
 ### Eval categories
 

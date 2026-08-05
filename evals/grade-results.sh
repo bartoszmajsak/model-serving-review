@@ -104,6 +104,29 @@ for fixture_dir in "$RESULTS_DIR"/*/; do
     fi
   done
 
+  # Check coverage — rules the agent had to actually evaluate, not merely not flag.
+  # This is the only assertion that can tell "looked and found nothing" from "never looked":
+  # every other check here is satisfied by an agent that skipped the rule entirely.
+  expected_coverage=$(echo "$expected" | jq -r '.expected_coverage[]? // empty' 2>/dev/null)
+  if [[ -n "$expected_coverage" ]]; then
+    coverage_file="$fixture_dir/coverage.json"
+    if [[ ! -f "$coverage_file" ]]; then
+      fixture_details+="  ✗ expected_coverage asserted but no coverage.json collected\n"
+      fixture_pass=false
+    else
+      evaluated=$(jq -r '.[] | select(.verdict != "not_applicable") | .rule_id' "$coverage_file" 2>/dev/null | sort -u)
+      for rule in $expected_coverage; do
+        if echo "$evaluated" | grep -q "^${rule}$"; then
+          fixture_details+="  ✓ Evaluated $rule\n"
+        else
+          verdict=$(jq -r --arg r "$rule" '.[] | select(.rule_id == $r) | .verdict' "$coverage_file" 2>/dev/null)
+          fixture_details+="  ✗ DID NOT EVALUATE $rule (${verdict:-absent from coverage})\n"
+          fixture_pass=false
+        fi
+      done
+    fi
+  fi
+
   if $fixture_pass; then
     echo "PASS $fixture"
     PASS=$((PASS + 1))

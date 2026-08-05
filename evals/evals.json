@@ -748,7 +748,10 @@
           "CTL-110",
           "CTL-120"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "CTL-110"
+        ]
       }
     },
     {
@@ -761,7 +764,10 @@
         "unexpected_rules": [
           "CTL-150"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "CTL-150"
+        ]
       }
     },
     {
@@ -842,7 +848,10 @@
         "unexpected_rules": [
           "SEC-100"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "SEC-100"
+        ]
       }
     },
     {
@@ -855,7 +864,10 @@
         "unexpected_rules": [
           "SEC-110"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "SEC-110"
+        ]
       }
     },
     {
@@ -868,7 +880,10 @@
         "unexpected_rules": [
           "SEC-090"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "SEC-090"
+        ]
       }
     },
     {
@@ -949,7 +964,10 @@
         "unexpected_rules": [
           "API-080"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "API-080"
+        ]
       }
     },
     {
@@ -1027,7 +1045,10 @@
           "SYNC-050",
           "SYNC-070"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "SYNC-070"
+        ]
       }
     },
     {
@@ -1091,7 +1112,10 @@
         "unexpected_rules": [
           "TST-060"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "TST-060"
+        ]
       }
     },
     {
@@ -1121,7 +1145,10 @@
         "unexpected_rules": [
           "CFG-050"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "CFG-050"
+        ]
       }
     },
     {
@@ -1151,7 +1178,10 @@
         "unexpected_rules": [
           "CODE-070"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "CODE-070"
+        ]
       }
     },
     {
@@ -1181,7 +1211,10 @@
         "unexpected_rules": [
           "CTL-160"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "CTL-160"
+        ]
       }
     },
     {
@@ -1211,7 +1244,10 @@
         "unexpected_rules": [
           "CODE-080"
         ],
-        "max_findings": 1
+        "max_findings": 1,
+        "expected_coverage": [
+          "CODE-080"
+        ]
       }
     }
   ]
