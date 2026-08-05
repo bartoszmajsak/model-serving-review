@@ -55,6 +55,28 @@ needs a rule's authority to be worth reporting, it belongs in `review-rules.md` 
   repo's own instruction to reviewers, and the reason is release mechanics: an image bump has to be
   revertable on its own.
 
+- **A create that can lose a race treats "already exists" as success.** Two reconciles, two informer
+  caches, one object: a `Create` in a reconcile path will eventually come back with an already-exists
+  error, and nothing is wrong when it does. Returning it as a failure re-queues with backoff and logs
+  an error for a state that is already correct. Treat it as success, or use create-or-update.
+
+## Considered and left out
+
+Kept here so the next person does not re-litigate them. Each failed the bar above, and failing it is
+not a demotion — it usually means the thing belongs in `review-rules.md` or nowhere.
+
+- **Status URL scheme stability.** A change to the shape of a status value users parse is real, but
+  deciding whether to change a shipped scheme is a maintainer conversation, not an author fix. It also
+  fires on every diff that merely touches the area, and the inconsistency it would flag already
+  shipped.
+- **A second `mgr.Start()` in a setup function.** Deterministic and worth catching — it blocks, so
+  everything registered after it never runs — but it is already in the controller-reviewer's risk map
+  for `cmd/*/main.go`, which is the only place it can happen. A copy here reports the same defect
+  twice under two labels.
+- **Cache staleness after a delete.** Judging whether a list-then-act loop needs expectations is the
+  definition of judgment, and these repos have no such loop, so it would be an item with no true
+  positives.
+
 ## Maintaining this file
 
 Before adding an item, run the subtraction against the target repo, not from memory: read its
