@@ -1249,6 +1249,28 @@
           "CODE-080"
         ]
       }
+    },
+    {
+      "id": "dedup-ctl-100-bug-010",
+      "category": "integration",
+      "prompt": "Review the code changes in this repo.",
+      "description": "One env var added to a controller-built pod template: controller-reviewer sees CTL-100, safety-reviewer sees BUG-010. Verifies merge-findings.sh collapses them into a single finding carrying both rule IDs.",
+      "expected_output": "Should report exactly one finding whose rule_ids contain both CTL-100 and BUG-010.",
+      "assertions": {
+        "expected_rules": [
+          "CTL-100",
+          "BUG-010"
+        ],
+        "expected_files": [
+          "pkg/controller/modelcar_reconciler.go"
+        ],
+        "expected_coverage": [
+          "CTL-100",
+          "BUG-010"
+        ],
+        "min_findings": 1,
+        "max_findings": 1
+      }
     }
   ]
 }
