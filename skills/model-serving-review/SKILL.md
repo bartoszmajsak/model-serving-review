@@ -123,6 +123,18 @@ Drop refuted findings. Keep confirmed findings and all findings with confidence 
 
 Sort surviving findings: MUST before SHOULD, then by confidence descending.
 
+Before rendering, persist the sorted findings so they can be graded. Pass the same array the agents
+returned — do not reformat it:
+
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/save-findings.sh <<'FINDINGS'
+[{"rule_id": "CTL-010", "severity": "MUST", "file": "pkg/controller/foo.go", "line_hint": "reconcileRouter", "summary": "...", "detail": "...", "confidence": 85}]
+FINDINGS
+```
+
+Write `[]` when nothing survived. This file is what the eval harness grades, so it must be written on
+every run, including clean ones.
+
 ```
 ### Model Serving Review: {source_desc}
 

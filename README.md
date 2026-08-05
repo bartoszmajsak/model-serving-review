@@ -207,11 +207,17 @@ bash evals/run-evals.sh
 # 2. For each fixture, invoke the skill from its repo_dir
 cd /tmp/eval-fixture-ctl-010-deep-nesting-XXXXXX
 /model-serving-review --base HEAD~1
-# Save output to $RESULTS_DIR/<fixture>/output.json
 
-# 3. Grade results
+# 3. Collect its findings — the skill writes them in the grader's schema
+cp /tmp/model-serving-findings.json $RESULTS_DIR/ctl-010-deep-nesting/output.json
+
+# 4. Grade results
 bash evals/grade-results.sh $RESULTS_DIR
 ```
+
+Step 2 is the only manual part. The skill writes `/tmp/model-serving-findings.json` on every run
+(including clean ones, as `[]`), so step 3 is a copy rather than a transcription of the report table.
+The path is fixed, so run fixtures one at a time.
 
 ### How fixtures work
 
