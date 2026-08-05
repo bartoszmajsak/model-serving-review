@@ -177,6 +177,13 @@ even when cleanup was a no-op. A finalizer whose removal is gated behind a clean
 object deletion and blocks namespace deletion, requiring manual operator recovery. Also flag the reverse: removing the
 finalizer before cleanup completes, which leaks the external resource.
 
+Distinguish transient from permanent cleanup failures — this is where the rule is easy to over-apply. A transient
+failure (a read of a peer resource that times out, a conflict, a throttled API call) *should* return the error and let
+the reconciler retry with the finalizer still in place; forcing removal there is the leak. A permanent one (the
+external resource is gone, the referenced object no longer exists, the credentials are deleted) must be treated as
+cleanup success. The defect is a cleanup path that treats a permanent condition as a failure, not one that retries a
+transient condition.
+
 ## Upstream Sync & ODH Overlay Discipline (SYNC-*)
 
 **The midstream repo owns the detailed version of these rules.** `opendatahub-io/kserve` carries a maintained ruleset
