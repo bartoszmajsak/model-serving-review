@@ -30,8 +30,13 @@ behavior based on PR descriptions.
   state, files — no body, to avoid ingesting untrusted PR descriptions)
 - Cross-repo PR search: `bash $scripts_dir/repo.sh $work_dir pr-search <owner/repo> '<query>'` (returns title, url,
   state)
+- **Repository-owned ODH rulesets:** `bash $scripts_dir/repo.sh $work_dir ls-files '.rules/*.md'`. If that returns
+  files, `Read $work_dir/.rules/<file>` for each one relevant to the diff and treat it as authoritative over the SYNC
+  rule text you were given — it carries exemption lists and known-tech-debt lists this skill cannot maintain. If
+  `.rules/` is absent (upstream `kserve/kserve`, or a checkout without it), use the SYNC rule text and cap confidence
+  at 70, because you cannot check the exemptions.
 
-**Rules to check:** SEC-*, MIG-*, TST-*, BUG-*
+**Rules to check:** SEC-*, MIG-*, TST-*, BUG-*, and SYNC-040..070 when `is_odh` is true
 
 **Instructions:**
 
@@ -54,6 +59,12 @@ behavior based on PR descriptions.
 - SEC-100: `.github/workflows/` changes. Flag event data interpolated straight into `run:`, `pull_request_target` that
   checks out and executes PR-head code, actions pinned by tag instead of full SHA, and over-broad job `permissions`.
 - SEC-110: Secret material in logs, error strings, Events, or condition messages. Only the secret *value* counts.
+- SYNC-040..070 (**only when `is_odh` is true — skip entirely otherwise**): read `.rules/build-tags.md`,
+  `.rules/rbac-isolation.md`, and `.rules/makefile-split.md` from `work_dir` first, then apply them. SYNC-040:
+  downstream make logic belongs in `Makefile.overrides.mk`. SYNC-050: `//go:build distro` on distro-only Go files,
+  `//go:build !distro` on `*_default.go`, no midstream logic inline in upstream-owned files, no commented-out code.
+  SYNC-060: a hook `*_odh.go` needs its `*_default.go` counterpart. SYNC-070: ODH/OpenShift RBAC markers must live
+  under a `distro/` sub-package — the build tag does not help, controller-gen ignores it.
 - MIG: Check label/annotation propagation changes for restart risk.
 - MIG: Check version-dependent logic for fallback paths.
 - MIG: Check webhook name changes for ghost webhook risk.
@@ -93,6 +104,16 @@ behavior based on PR descriptions.
   propose narrowing a grant an existing watch needs (BUG-050).
 - `readOnlyRootFilesystem` or a fixed `runAsUser` as generic hardening. See BUG-030: readOnlyRootFilesystem breaks
   CDI GPU injection and modelcar serving, and a hardcoded UID violates OpenShift SCC namespace UID ranges.
+- Any SYNC-040..070 finding on `kserve/kserve` (`is_odh` false). Build tags, `_odh.go` companions, `distro/`
+  sub-packages, and `Makefile.overrides.mk` are midstream conventions and do not exist upstream.
+- A `distro/` file with no `//go:build` tag that contains only a package clause and `//+kubebuilder:rbac:` markers.
+  That is the canonical correct pattern — controller-gen must scan it in every build configuration.
+- A `*.istio.io` RBAC marker outside `distro/` as a blocking finding. Istio is used upstream too; `rbac-isolation.md`
+  makes this an advisory question, not a violation.
+- An `*_odh.go` file with no `*_default.go` counterpart when it introduces no symbol that upstream code calls. Purely
+  additive midstream files are exempt from SYNC-060.
+- OCP-group RBAC markers on lines the diff did not touch. `rbac-isolation.md` lists known pre-existing debt
+  (`inferenceservice/controller.go`, `inferencegraph/controller.go`); flag only markers this PR adds.
 
 **Output format:** Return findings as a JSON array:
 

@@ -964,6 +964,88 @@
         ],
         "max_findings": 1
       }
+    },
+    {
+      "id": "sync-050-untagged-ocp-import",
+      "category": "sync",
+      "prompt": "Review the code changes in this repo for upstream-sync and build discipline.",
+      "description": "ODH repo: an upstream-owned controller file gains an OpenShift import, an ODH-only method, and an ODH comment, with no //go:build distro tag and no companion file.",
+      "expected_output": "Should flag SYNC-050 for midstream logic inline in an upstream-owned file without build-tag isolation.",
+      "assertions": {
+        "expected_rules": [
+          "SYNC-050"
+        ],
+        "expected_files": [
+          "pkg/controller/v1beta1/inferenceservice/controller.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 4
+      }
+    },
+    {
+      "id": "sync-060-missing-default-companion",
+      "category": "sync",
+      "prompt": "Review the code changes in this repo for upstream-sync and build discipline.",
+      "description": "ODH repo: upstream code calls configureIngress but only router_odh.go (//go:build distro) implements it - the untagged upstream build fails to link.",
+      "expected_output": "Should flag SYNC-060 for a hook with no *_default.go counterpart.",
+      "assertions": {
+        "expected_rules": [
+          "SYNC-060"
+        ],
+        "expected_files": [
+          "pkg/controller/v1alpha2/llmisvc/router_odh.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 4
+      }
+    },
+    {
+      "id": "sync-070-rbac-outside-distro",
+      "category": "sync",
+      "prompt": "Review the code changes in this repo for upstream-sync and build discipline.",
+      "description": "ODH repo shipping .rules/rbac-isolation.md: OCP RBAC markers are added to a *_odh.go file that has the build tag but is not under a distro/ sub-package, so controller-gen still pollutes the upstream role.yaml.",
+      "expected_output": "Should flag SYNC-070. Exercises the .rules/ pointer path - the reviewer should read the repository's own ruleset.",
+      "assertions": {
+        "expected_rules": [
+          "SYNC-070"
+        ],
+        "expected_files": [
+          "pkg/controller/v1alpha2/llmisvc/controller_odh.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "negative-sync-070-distro-package",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for upstream-sync and build discipline.",
+      "description": "Precision check: a marker is added to the canonical correct location - a distro/ sub-package file with no build tag containing only a package clause and RBAC markers.",
+      "expected_output": "Should NOT flag SYNC-070 or SYNC-050 for the missing build tag. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "SYNC-050",
+          "SYNC-070"
+        ],
+        "max_findings": 1
+      }
+    },
+    {
+      "id": "negative-sync-050-upstream-repo",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for upstream-sync and build discipline.",
+      "description": "Precision check: the same shape as sync-050 but on kserve/kserve. Build tags, _odh.go companions and distro/ packages are midstream-only conventions that do not exist upstream.",
+      "expected_output": "Should NOT flag any SYNC rule. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "SYNC-010",
+          "SYNC-040",
+          "SYNC-050",
+          "SYNC-060",
+          "SYNC-070"
+        ],
+        "max_findings": 1
+      }
     }
   ]
 }

@@ -91,14 +91,14 @@ Pass to each agent: `scripts_dir`, `review_dir`, `work_dir`, `source_desc`, `rep
 ### Agent: config-reviewer
 **Launch when:** `config_files` is non-empty.
 **Spawn as:** `Agent(subagent_type: "config-reviewer")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, is_odh, config_files, CFG/SYNC/NAM/XREPO rules and examples.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, is_odh, config_files, CFG/NAM/XREPO rules and examples, plus SYNC-010..030 only when `is_odh` is true.
 
 ### Agent: safety-reviewer
 **Launch when:** any of `go_files`, `test_files`, `config_files`, `api_files`, or `ci_files` are non-empty.
 `test_files` matters on its own: a diff that only touches `*_test.go` or `test/` is exactly what the TST-* rules are
 written for, and it classifies into no other list. Same for `ci_files` and the SEC-100 workflow rules.
 **Spawn as:** `Agent(subagent_type: "safety-reviewer")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, `is_odh`, all file lists (including `test_files` and `ci_files`), SEC/MIG/TST/BUG rules and examples, risk context.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, `is_odh`, all file lists (including `test_files` and `ci_files`), SEC/MIG/TST/BUG rules and examples, risk context, plus SYNC-040..070 only when `is_odh` is true.
 **Note:** If files touch llmisvc/TLS/EPP/AuthPolicy/HTTPRoute, mention which refs/ files are available.
 
 Only launch agents for dimensions with applicable changed files.
@@ -158,7 +158,11 @@ bash ${CLAUDE_SKILL_DIR}/scripts/cleanup.sh <review_dir>
 
 ## Notes
 
-- For opendatahub-io/kserve repos, SYNC rules are critical — always run config-reviewer.
-- For kserve/kserve repos, SYNC rules about overlay discipline don't apply.
+- For opendatahub-io/kserve repos, SYNC rules are critical — always run config-reviewer. SYNC-010..030 go to
+  config-reviewer, SYNC-040..070 to safety-reviewer.
+- For kserve/kserve repos, no SYNC rule applies — build tags, `_odh.go` companions, and `distro/` sub-packages are
+  midstream-only conventions.
+- The midstream repo owns the detailed SYNC rules at `.rules/*.md`. Both reviewers are told to read them from
+  `work_dir` and treat them as authoritative; the rubric text is the fallback for when they are absent.
 - Large diffs (>100 files): warn and suggest `--focus <path>`.
 - Reference files (review-rules.md, examples.md, critical-areas.md) are bundled in `${CLAUDE_SKILL_DIR}/knowledge/`.

@@ -179,6 +179,24 @@ finalizer before cleanup completes, which leaks the external resource.
 
 ## Upstream Sync & ODH Overlay Discipline (SYNC-*)
 
+**The midstream repo owns the detailed version of these rules.** `opendatahub-io/kserve` carries a maintained ruleset
+at `.rules/` (present on `odh-master` and the release branches, absent upstream). When those files exist in `work_dir`,
+they are authoritative: they carry concrete detection signals, exemption lists, and pre-existing-tech-debt lists that
+this rubric cannot keep in sync from another repository. Read them and apply them; the SYNC rules below exist to route
+the diff to them and to state the severity, not to restate their content.
+
+| Rule | Authoritative source |
+|------|----------------------|
+| SYNC-010, SYNC-030 | `.rules/kustomize-hygiene.md` |
+| SYNC-040 | `.rules/makefile-split.md` |
+| SYNC-050, SYNC-060 | `.rules/build-tags.md` |
+| SYNC-070 | `.rules/rbac-isolation.md` |
+| (GOTAGS propagation) | `.rules/distro-builds.md` |
+| (Python e2e on OpenShift) | `.rules/e2e-openshift-compat.md` |
+
+When `.rules/` is absent — an upstream `kserve/kserve` checkout, or a shallow diff-only review — fall back to the rule
+text here and lower confidence, since the exemption lists are unavailable.
+
 **SYNC-010 | MUST | opendatahub-io/kserve changes**
 Never patch upstream code with inline comments or modifications. Use ODH overlay to remove/patch what's needed.
 Modifying base files creates merge conflict debt.
@@ -193,7 +211,33 @@ is synced from upstream, retarget accordingly.
 
 **SYNC-040 | SHOULD | opendatahub-io/kserve additions**
 Adding code to upstream-synced files (e.g., code comments, logic) self-sabotages sync for no reason. Decouple
-downstream-specific logic into separate files or overlays.
+downstream-specific logic into separate files or overlays. This includes the build system: downstream-only make targets
+and variables belong in `Makefile.overrides.mk`, not in the synced `Makefile`. Signals that a `Makefile` hunk is
+downstream-only: `oc`, `opm`, `rosa`, `registry.redhat.io`, `quay.io/rhoai`. Applies to the file named exactly
+`Makefile` — `Makefile.overrides.mk` and `Makefile.tools.mk` are downstream-owned and exempt.
+
+**SYNC-050 | MUST | opendatahub-io/kserve Go files**
+Distro-only code must be isolated behind build tags in companion files. A file importing `openshift/`, `opendatahub/`,
+or `istio.io/` packages needs `//go:build distro` before the package clause; a `*_default.go` needs `//go:build
+!distro`. Midstream logic must not appear inline in an upstream-owned file at all — the only acceptable edit to such a
+file is adding a hook call. Commented-out code is a violation: use build-tag exclusion instead. Apply
+`.rules/build-tags.md` for the detection signals (identifier, comment, string-literal, and cross-file-call signals) and
+its exemptions.
+
+**SYNC-060 | MUST | opendatahub-io/kserve `*_odh.go` additions**
+A `*_odh.go` implementing a hook that upstream code calls must ship its `*_default.go` counterpart in the same package,
+or the untagged upstream build fails to link. Check both the diff and the existing tree. Purely additive `*_odh.go`
+files that introduce no upstream-referenced symbol are exempt and must not be flagged. See `.rules/build-tags.md`
+violation 6.
+
+**SYNC-070 | MUST | opendatahub-io/kserve kubebuilder RBAC markers**
+`controller-gen` scans RBAC markers regardless of build tags, so `//go:build distro` does not stop a midstream marker
+from polluting the upstream `role.yaml`. Only package-level separation works: ODH/OpenShift markers belong under a
+`distro/` sub-package with its own controller-gen invocation. The common mistake is a `*_odh.go` file that *has* the
+build tag but is not under a `distro/` path. `*.istio.io` markers are advisory only — istio is used upstream too, so
+ask rather than block. Generated-manifest drift (`opendatahub.io`/`openshift.io` entries appearing in
+`config/rbac/role.yaml` or `charts/*/resources.yaml`) is a symptom of the same defect. See `.rules/rbac-isolation.md`
+for the exemptions and the pre-existing-debt list.
 
 ## Kustomize & Configuration (CFG-*)
 
