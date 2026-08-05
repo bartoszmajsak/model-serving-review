@@ -15,6 +15,7 @@ set -euo pipefail
 # Writes:
 #   $review_dir/rules/<agent>.md        one bundle per Pass-1 agent
 #   $review_dir/rules/by-id/<RULE>.md   one file per rule, for the verifier
+#   $review_dir/rules/tier1-files.txt   changed files on a Tier-1 hot path
 #
 # Usage: bash bundle-rules.sh <metadata.json>
 
@@ -118,6 +119,28 @@ slice_risk() {
 }
 
 RISK=$(slice_risk)
+
+# The changed files that land on a Tier-1 row, one per line. An agent that comes
+# back with nothing to say about one of these is the thin-signal case the
+# orchestrator escalates on, and it needs the list without reading the map.
+tier1_files() {
+  local rows path file
+  rows=$(awk '/^### Tier 1/ { t = 1; next } /^### Tier 2/ { t = 0 } t && /^\| `/' "$CRITICAL")
+  [[ -n "$rows" ]] || return 0
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    while read -r path; do
+      path="${path%/}"
+      # shellcheck disable=SC2053
+      if [[ "$file" == $path || "$file" == $path/* || "$file" == *$path* ]]; then
+        echo "$file"
+        break
+      fi
+    done < <(grep -oE '`[^`]+`' <<< "$rows" | tr -d '`')
+  done <<< "$CHANGED"
+}
+
+tier1_files | sort -u > "$OUT/tier1-files.txt"
 
 write_bundle() {
   local agent="$1" ids="$2" dest="$OUT/${agent}.md"

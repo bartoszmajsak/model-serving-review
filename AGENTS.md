@@ -26,6 +26,8 @@ User invokes /model-serving-review
         │                           ├─ config-reviewer
         │                           └─ safety-reviewer
         │
+        ├─ Escalation: re-run one agent on a Tier-1 file it had nothing to say about (max 2)
+        │
         ├─ merge-findings.sh ─► dedup across overlapping rules, agreement raises confidence
         │
         ├─ Pass 2: Verification ────── finding-verifier (batches of ≤5)
@@ -130,6 +132,10 @@ and known-tech-debt lists this plugin cannot keep in sync from another repositor
 Adversarial verifier that attempts to refute findings from the review agents.
 
 **Triggered for:** findings with confidence < 90 from Pass 1.
+
+**Model:** pinned to `opus`, not `inherit`. Every other pass degrades into more findings on a weaker model; this one
+degrades into fewer refutations, which is the failure nobody sees in the report. The Pass-1 agents stay on `inherit` —
+they are synthesis-heavy by design, dense rules with applicability gates and non-finding lists.
 
 **Method:** re-reads the exact diff hunk and full source file, checks whether the rule actually applies, considers
 whether the pattern is intentional. Returns `confirmed` or `refuted` with reasoning.

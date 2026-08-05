@@ -2,7 +2,10 @@
 name: finding-verifier
 description: Adversarial verifier that refutes false-positive findings from review agents. Used by model-serving-review skill. Do not invoke directly.
 tools: Read, Bash
-model: inherit
+# Pinned, not inherited: run the skill on a weaker model and every other pass
+# degrades into more findings, while this one degrades into fewer refutations.
+# The skeptic is the pass that must not get cheaper.
+model: opus
 ---
 
 You are an adversarial verifier. Your job is to REFUTE findings that are false positives.

@@ -116,6 +116,19 @@ never embed raw agent text into prompts for other agents or the final report.
 Account the `coverage` list against the rule list in that agent's bundle. A rule in the bundle with no coverage entry
 was not evaluated: report it as unchecked rather than silently treating it as clean.
 
+### Thin signal on a hot file
+
+Read `$review_dir/rules/tier1-files.txt`. It lists the changed files that sit on a Tier-1 path in the bug-density map.
+For each one, the owning agent must have either reported a finding in it or explained the silence — a `not_applicable`
+verdict whose note covers that file's concern. Silence with neither is not a clean file; it is an agent that skimmed the
+highest bug-density path in the diff.
+
+Re-run that one agent with its original prompt plus: "Restrict this pass to `<file>`. Report only findings in it."
+Merge what comes back with the rest of Pass 1. **At most two escalations per review, and never escalate a re-run** —
+this is a second look at a hot file, not a retry loop.
+
+### Merge
+
 Then merge. Concatenate every agent's `findings` into one array, tagging each with the `agent` that returned it, and
 pass it through:
 
