@@ -184,6 +184,20 @@ curl -sfL "https://raw.githubusercontent.com/kserve/kserve/refs/heads/master/con
 curl -sfL "https://raw.githubusercontent.com/opendatahub-io/odh-model-controller/refs/heads/incubating/internal/controller/resources/template/authpolicy_llm_isvc_userdefined.yaml" \
   > "$REVIEW_DIR/refs/authpolicy-template.yaml" 2>/dev/null || true
 
+# Repo-owned checklists, picked up at review time so a fork or the midstream needs
+# no edit to this plugin. The PR template's "**Checklist**:" section is the honor
+# system every contributor already ticks; a team that wants more drops
+# .model-serving-review/checklist.md next to it. bundle-rules.sh prepends whatever
+# lands here to every agent bundle.
+: > "$REVIEW_DIR/repo-checklist.md"
+if [[ -f "$WORK_DIR/.github/PULL_REQUEST_TEMPLATE.md" ]]; then
+  sed -n '/^\*\*Checklist\*\*/,/^\*\*[A-Z]/p' "$WORK_DIR/.github/PULL_REQUEST_TEMPLATE.md" \
+    | grep -E '^- \[ \]' >> "$REVIEW_DIR/repo-checklist.md" || true
+fi
+if [[ -f "$WORK_DIR/.model-serving-review/checklist.md" ]]; then
+  cat "$WORK_DIR/.model-serving-review/checklist.md" >> "$REVIEW_DIR/repo-checklist.md"
+fi
+
 # Write metadata JSON (no diff embedded — diffs are separate files)
 to_json_array() {
   local input="$1"

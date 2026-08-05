@@ -11,6 +11,7 @@ set -euo pipefail
 #   2. every rule defined in review-rules.md is claimed by at least one agent prompt
 #   3. no rule ID is defined twice
 #   4. rule IDs are in ascending order within their family
+#   5. checklist.md cites no rule ID — a checklist item that restates a rule double-reports
 #
 # Usage: bash evals/check-rule-refs.sh
 
@@ -89,6 +90,19 @@ if bash "$ROOT/skills/model-serving-review/scripts/bundle-rules.sh" \
   done
 else
   fail "bundle-rules.sh failed — agent routing cannot be verified"
+fi
+
+# --- 5. the checklist stays out of the rubric's business ---
+# An item that restates a rule reports the same defect twice under two labels, and
+# merge-findings.sh cannot collapse them: LOCAL is in no overlap class. Citing a rule
+# ID is the visible symptom of that, so it is a failure, not a style note.
+CHECKLIST="$ROOT/skills/model-serving-review/knowledge/checklist.md"
+if [[ -f "$CHECKLIST" ]]; then
+  if cited=$(grep -oE "$RULE_RE" "$CHECKLIST" | sort -u) && [[ -n "$cited" ]]; then
+    fail "checklist.md cites rule IDs ($(echo "$cited" | tr '\n' ' ')) — an item that needs a rule's authority belongs in review-rules.md"
+  fi
+else
+  fail "checklist.md is missing — bundle-rules.sh appends it to every bundle"
 fi
 
 # --- informational: rules with no example ---

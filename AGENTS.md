@@ -19,7 +19,7 @@ User invokes /model-serving-review
         │
         ├─ fetch-context.sh ──► diffs, metadata, cross-repo refs
         │
-        ├─ bundle-rules.sh ───► rules/<agent>.md, rules/by-id/<RULE>.md
+        ├─ bundle-rules.sh ───► rules/<agent>.md (+ checklist), rules/by-id/<RULE>.md
         │
         ├─ Pass 1: Parallel review ─┬─ controller-reviewer
         │                           ├─ api-reviewer
@@ -188,6 +188,11 @@ All review agents return one object carrying both what they found and what they 
   ]
 }
 ```
+
+A finding whose `rule_id` is `LOCAL` comes from the checklist appended to every bundle — the base one in
+`knowledge/checklist.md` plus whatever the target repo states in its PR template or `.model-serving-review/checklist.md`.
+It is capped at severity SHOULD and confidence 75, never suppresses a rule, and gets no coverage entry. The verifier
+reads `rules/by-id/LOCAL.md` for it, same as for any rule.
 
 `coverage` carries one entry per rule in the agent's bundle, and the orchestrator accounts it against
 that bundle. Without it, a rule the agent never evaluated is indistinguishable from one it evaluated

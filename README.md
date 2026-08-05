@@ -103,6 +103,7 @@ skills/
       review-rules.md           # 80+ review rules with IDs and severity
       examples.md               # Concrete patterns from review history
       critical-areas.md         # Bug-density map for risk-weighted attention
+      checklist.md              # Unconditional floor under the rules, reported as LOCAL
     scripts/
       fetch-context.sh          # Gathers diffs, classifies files, fetches refs
       bundle-rules.sh           # Slices the rubric into one rule bundle per agent
@@ -280,6 +281,22 @@ grep -o '"category": "[^"]*"' evals/evals.json | sort | uniq -c
 2. Add a concrete example to `skills/model-serving-review/knowledge/examples.md`
 3. If the rule applies to a specific subsystem, add it to the relevant agent's "Rules to check" list
 4. Test against a PR that should trigger the new rule
+
+### Adding a checklist item
+
+The checklist is the floor under the rules: every one of the 88 rules is gated on a code kind, so nothing else in the
+plugin applies to a PR the rubric does not recognize. Items are synthesized by subtraction — a convention the project
+states, minus what the linters fail on, minus what `make precommit` verifies, minus what a rule covers. An item must be
+unconditional, checkable from the diff alone, and fixable by the author without a maintainer conversation. If deciding
+whether it applies takes judgment, write a rule instead.
+
+1. Run the subtraction against the target repo's `.golangci.yml` and its `precommit` target, not from memory
+2. Add the item to `skills/model-serving-review/knowledge/checklist.md` — no rule IDs, the checker enforces this
+3. Findings land as `LOCAL` at severity SHOULD with confidence capped at 75
+
+A repo can carry its own without touching this plugin: the `**Checklist**:` section of its
+`.github/PULL_REQUEST_TEMPLATE.md` and `.model-serving-review/checklist.md` are both picked up at review time and
+appended to every agent bundle.
 
 ### Modifying an agent
 

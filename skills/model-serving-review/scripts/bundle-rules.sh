@@ -15,7 +15,11 @@ set -euo pipefail
 # Writes:
 #   $review_dir/rules/<agent>.md        one bundle per Pass-1 agent
 #   $review_dir/rules/by-id/<RULE>.md   one file per rule, for the verifier
+#   $review_dir/rules/by-id/LOCAL.md    the checklists, for verifying LOCAL findings
 #   $review_dir/rules/tier1-files.txt   changed files on a Tier-1 hot path
+#
+# Every bundle also ends with the base checklist and whatever fetch-context.sh
+# pulled out of the target repo — the layer that applies whatever the rule list says.
 #
 # Usage: bash bundle-rules.sh <metadata.json>
 
@@ -27,15 +31,17 @@ KNOWLEDGE="$SCRIPT_DIR/../knowledge"
 RULES="$KNOWLEDGE/review-rules.md"
 EXAMPLES="$KNOWLEDGE/examples.md"
 CRITICAL="$KNOWLEDGE/critical-areas.md"
+CHECKLIST="$KNOWLEDGE/checklist.md"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd -P)/agents"
 
-for f in "$RULES" "$EXAMPLES" "$CRITICAL"; do
+for f in "$RULES" "$EXAMPLES" "$CRITICAL" "$CHECKLIST"; do
   [[ -f "$f" ]] || { echo "error: missing knowledge file: $f" >&2; exit 1; }
 done
 [[ -d "$AGENTS_DIR" ]] || { echo "error: agents dir not found at $AGENTS_DIR" >&2; exit 1; }
 
 REVIEW_DIR=$(jq -r '.review_dir' "$META")
 IS_ODH=$(jq -r '.is_odh' "$META")
+REPO_CHECKLIST="$REVIEW_DIR/repo-checklist.md"
 OUT="$REVIEW_DIR/rules"
 mkdir -p "$OUT/by-id"
 
@@ -142,6 +148,13 @@ tier1_files() {
 
 tier1_files | sort -u > "$OUT/tier1-files.txt"
 
+# The maintainer section is for whoever edits the checklist, not for the agent
+# reading it mid-review. Everything above it - including what was left out and why -
+# is what the agent needs.
+checklist_body() {
+  awk '/^## Maintaining this file/ { exit } { print }' "$CHECKLIST"
+}
+
 write_bundle() {
   local agent="$1" ids="$2" dest="$OUT/${agent}.md"
   local count; count=$(wc -w <<< "$ids" | tr -d ' ')
@@ -151,6 +164,8 @@ write_bundle() {
     echo
     echo "You are accountable for exactly these $count rules. This list is closed —"
     echo "no rule outside it is yours, and every rule in it must be evaluated."
+    echo "The checklist at the end of this file is separate: it applies to the whole"
+    echo "diff regardless of the rule list, and its findings are tagged LOCAL."
     echo
     echo "$ids" | tr ' ' '\n' | sed 's/^/- /'
     echo
@@ -170,6 +185,18 @@ write_bundle() {
       echo "$RISK"
       echo
     fi
+    checklist_body
+    if [[ -s "$REPO_CHECKLIST" ]]; then
+      echo
+      echo "## Checklist from the repository under review"
+      echo
+      echo "Same bar, same \`LOCAL\` tag, same SHOULD ceiling as the base checklist. This is what the project"
+      echo "asks of its own contributors, taken from its PR template and its \`.model-serving-review/checklist.md\`."
+      echo "Where it repeats a rule you already have, the rule wins and this adds nothing."
+      echo
+      cat "$REPO_CHECKLIST"
+      echo
+    fi
   } > "$dest"
 
   echo "$agent: $count rules -> $dest"
@@ -187,6 +214,18 @@ write_by_id() {
       slice_examples "$rule"
     } > "$OUT/by-id/${rule}.md"
   done
+
+  # LOCAL findings cite a checklist item rather than a rule, and the verifier
+  # looks its subject up by the same path as everything else.
+  {
+    checklist_body
+    if [[ -s "$REPO_CHECKLIST" ]]; then
+      echo
+      echo "## Checklist from the repository under review"
+      echo
+      cat "$REPO_CHECKLIST"
+    fi
+  } > "$OUT/by-id/LOCAL.md"
 }
 
 for agent_file in "$AGENTS_DIR"/*.md; do

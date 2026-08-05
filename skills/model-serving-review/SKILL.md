@@ -69,6 +69,10 @@ bash ${CLAUDE_SKILL_DIR}/scripts/bundle-rules.sh <metadata.json path>
 This slices the rubric, the worked examples, and the matching Tier 1/2 risk rows into one bundle per agent at
 `$review_dir/rules/<agent>.md`, plus one file per rule at `$review_dir/rules/by-id/<RULE-ID>.md` for Step 4.
 
+Every bundle also ends with the base checklist and whatever `fetch-context.sh` found in the target repo's PR template
+or `.model-serving-review/checklist.md`. Those apply to the whole diff whatever the rule list says, and their findings
+come back tagged `LOCAL` at severity SHOULD with confidence capped at 75.
+
 **Do not read the knowledge files yourself, and do not paste rule text into any agent prompt.** The bundles are sliced
 verbatim from the rubric; a paraphrase in a prompt is how a rule's exemptions get lost. Agents read their own bundle.
 
@@ -180,6 +184,7 @@ Found {N} issues ({M} MUST, {K} SHOULD):
 |---|------|----------|------|---------|
 | 1 | CTL-010 | MUST | `pkg/controller/foo.go` | Deep nesting — use exit-early pattern |
 | 2 | CTL-100, BUG-010 | MUST | `pkg/controller/bar.go` | Env var change rewrites the pod template hash |
+| 3 | LOCAL | SHOULD | `pkg/controller/baz.go` | New retry limit has no comment saying where 7 came from |
 
 <details>
 <summary>Details</summary>
@@ -231,6 +236,8 @@ bash ${CLAUDE_SKILL_DIR}/scripts/cleanup.sh <review_dir>
 - The midstream repo owns the detailed SYNC rules at `.rules/*.md`. Both reviewers are told to read them from
   `work_dir` and treat them as authoritative; the rubric text is the fallback for when they are absent.
 - Large diffs (>100 files): warn and suggest `--focus <path>`.
-- Reference files (review-rules.md, examples.md, critical-areas.md) live in `${CLAUDE_SKILL_DIR}/knowledge/`, but the
+- `LOCAL` findings come from the checklist, not the rubric. They sort last within their severity, never outrank a rule,
+  and never appear in the coverage block — coverage accounts for rules.
+- Reference files (review-rules.md, examples.md, critical-areas.md, checklist.md) live in `${CLAUDE_SKILL_DIR}/knowledge/`, but the
   orchestrator does not read them — `bundle-rules.sh` slices them into per-agent bundles in Step 2. Editing a rule
   changes what agents see on the next run with no prompt changes anywhere.
