@@ -27,17 +27,21 @@ User invokes /model-serving-review
 
 ### controller-reviewer
 
-Reviews controller and reconciler code under `pkg/controller/`, `internal/controller/`, and `cmd/`.
+Launched when `controller_files` is non-empty — controller and reconciler code under `pkg/controller/`,
+`internal/controller/`, `cmd/`, plus the Tier-1 hot file `pkg/utils/storage.go`.
 
 **Rules:** CTL-\*, CODE-\*, MIG-050, MIG-060
 
 **Focus areas:**
 
 - Exit-early pattern (CTL-010) — flags deep if-else nesting
-- Nil guard chains (CTL-020) — traces nested spec field access for nil panics
+- Nil guard chains (CTL-020) — traces nested spec field access for nil panics, including pointers a defaulting webhook
+  is assumed to have populated
 - Event emission (CTL-030) — no events on success/no-op
 - Transition handling (CTL-040) — IsNotFound AND IsNoMatchError for optional features
 - No restart on upgrade (CTL-100) — the #1 Blocker source; checks whether controller changes alter pod template hashes
+- Retry semantics (CTL-110) — a swallowed error replaced by a requeue discards backoff and the failure signal
+- Finalizer lifecycle (CTL-150) — cleanup must be idempotent and removal must be guaranteed
 
 ### api-reviewer
 
@@ -52,25 +56,34 @@ Reviews API types under `pkg/apis/` and `*_types.go` files.
 - Breaking changes — field removals, renames, type changes
 - Enum validation — avoid strict closed sets that block future extension
 - Deployment topology compatibility — single-node, multi-node, P/D
+- Wire-safe numeric types (API-070) — no bare `int`, no unsigned, no float in spec
+- Marker reachability (API-080, API-090) — verified against the generated CRD under `config/crd/full/`, not from the Go
+  markers alone
+- Condition machinery (API-100) — knative `duckv1.Status` types are covered by CTL-080; only genuine
+  `[]metav1.Condition` needs `listType`/`listMapKey`/`observedGeneration`
 
 ### config-reviewer
 
 Reviews kustomize configuration, overlays, and naming under `config/`, `*.yaml`, `params.env`.
 
-**Rules:** CFG-\*, NAM-\*, XREPO-\*, SYNC-\* (ODH repos only)
+**Rules:** CFG-\*, NAM-\*, XREPO-\*, SYNC-010/020/030 (ODH repos only)
 
 **Focus areas:**
 
 - Accelerator overlay discipline (CFG-010) — overlays must not re-set base hardening
 - Image injection (CFG-020, XREPO-010) — images in params.env with operator companion PR
-- Upstream sync discipline (SYNC-\*) — no inline patches to upstream-synced files
+- Upstream sync discipline (SYNC-010..030) — no inline patches to upstream-synced files
 - Resource naming (NAM-\*) — `kserve-` prefix, webhook name stability
+
+The Go-side ODH rules (SYNC-040..070) belong to safety-reviewer, not here.
 
 ### safety-reviewer
 
-Reviews for security, migration safety, test quality, and known bug patterns across all file types.
+Reviews for security, migration safety, test quality, and known bug patterns across all file types. Launched when any
+of `go_files`, `test_files`, `config_files`, `api_files`, or `ci_files` is non-empty — `test_files` and `ci_files`
+matter on their own, since a test-only or workflow-only diff classifies into no other list.
 
-**Rules:** SEC-\*, MIG-\*, TST-\*, BUG-\*
+**Rules:** SEC-\*, MIG-\*, TST-\*, BUG-\*, SYNC-040..070 (ODH repos only)
 
 **Focus areas:**
 
@@ -78,9 +91,21 @@ Reviews for security, migration safety, test quality, and known bug patterns acr
 - Authorization path mismatch (SEC-060) — cross-path fallthrough enables cross-tenant escalation
 - Cross-repo auth/route coverage (SEC-065) — AuthPolicy ↔ HTTPRoute contract
 - CEL injection (SEC-070) — validate interpolated template variables
+- RBAC escalation and workflow injection (SEC-080, SEC-100) — wildcards and escalate/bind/impersonate; event data
+  interpolated into `run:`, privileged triggers executing PR-head code
 - Upgrade restart risk (BUG-010) — pod template hash stability
 - Security context breaks (BUG-030) — CDI GPU injection, modelcar, xKS compatibility
 - Storage initializer pipeline (BUG-120) — 26 bugs, 9 Blockers across argument overflow, credentials, FIPS
+- Test infrastructure reality (TST-060, TST-070) — envtest has no GC, scheduler, or kubelet; Python e2e tests must
+  survive OpenShift SCC and TLS
+
+### Repository-owned rulesets
+
+The midstream repo carries its own maintained ruleset at `.rules/*.md` (build tags, RBAC isolation, kustomize hygiene,
+Makefile split, distro builds, OpenShift e2e compatibility). Both config-reviewer and safety-reviewer probe for it in
+`work_dir` and treat it as authoritative over the SYNC rule text they were given, because it carries exemption lists
+and known-tech-debt lists this plugin cannot keep in sync from another repository. When `.rules/` is absent — upstream
+`kserve/kserve`, or any checkout without it — they fall back to the rubric text with confidence capped at 70.
 
 ### finding-verifier
 

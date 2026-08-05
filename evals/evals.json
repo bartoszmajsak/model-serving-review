@@ -1046,6 +1046,53 @@
         ],
         "max_findings": 1
       }
+    },
+    {
+      "id": "tst-060-envtest-no-gc",
+      "category": "testing",
+      "prompt": "Review the code changes in this repo for test quality.",
+      "description": "envtest integration tests assert owner-reference cascade deletion and Ready status without simulating them, create a fixed-name ClusterRole with no cleanup, sleep instead of polling, and update an object without retry.",
+      "expected_output": "Should flag TST-060 for envtest anti-patterns and assertions on behavior envtest does not provide.",
+      "assertions": {
+        "expected_rules": [
+          "TST-060"
+        ],
+        "expected_files": [
+          "pkg/controller/v1beta1/inferenceservice/controller_int_test.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 5
+      }
+    },
+    {
+      "id": "tst-070-hardcoded-runasuser",
+      "category": "testing",
+      "prompt": "Review the code changes in this repo for test quality.",
+      "description": "Python e2e test hardcodes runAsUser/runAsGroup instead of importing the shared fixture, overrides command without the conditional TLS flags, and creates auth RBAC without passing the per-test namespace.",
+      "expected_output": "Should flag TST-070 for OpenShift incompatibility in a test/e2e Python file.",
+      "assertions": {
+        "expected_rules": [
+          "TST-070"
+        ],
+        "expected_files": [
+          "test/e2e/llmisvc/test_llm_auth.py"
+        ],
+        "min_findings": 1,
+        "max_findings": 4
+      }
+    },
+    {
+      "id": "negative-tst-060-simulated-status",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for test quality.",
+      "description": "Precision check: the envtest test uses a unique cluster-scoped name with deferred cleanup, retry.RetryOnConflict on update, and explicitly simulates the Deployment status that no kubelet would produce.",
+      "expected_output": "Should NOT flag TST-060. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "TST-060"
+        ],
+        "max_findings": 1
+      }
     }
   ]
 }

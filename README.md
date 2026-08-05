@@ -16,7 +16,7 @@ Runs a multi-agent review pipeline on your diff:
 3. **Adversarial verification** — a verifier agent refutes false positives
 4. **Report** — ranked findings with rule IDs, severity, and fix suggestions
 
-Coverage spans 50+ rules across controller patterns, API design, upstream sync, kustomize config, TLS/security,
+Coverage spans 80+ rules across controller patterns, API design, upstream sync, kustomize config, TLS/security,
 migration safety, testing, naming, cross-repo coordination, and 14 bug-prone patterns derived from real incidents.
 
 ## Install
@@ -100,7 +100,7 @@ skills/
   model-serving-review/
     SKILL.md                    # Orchestrator — drives the review pipeline
     knowledge/
-      review-rules.md           # 50+ review rules with IDs and severity
+      review-rules.md           # 80+ review rules with IDs and severity
       examples.md               # Concrete patterns from review history
       critical-areas.md         # Bug-density map for risk-weighted attention
     scripts/
@@ -115,7 +115,7 @@ evals/
   fixtures/
     common.sh                   # Shared helpers (init_repo, write_file, commit)
     ctl-010-deep-nesting.sh     # One fixture per rule or scenario
-    ...                         # 36 fixtures total
+    ...                         # one per rule or scenario; see evals.json for the full list
 ```
 
 ## Local testing
@@ -241,7 +241,8 @@ grep -o '"category": "[^"]*"' evals/evals.json | sort | uniq -c
 |--------------------|--------------------------------------------------------------|
 | `controller`       | CTL-* rule detection                                         |
 | `api`              | API-* rule detection                                         |
-| `config`           | CFG, NAM, SYNC, XREPO rule detection                         |
+| `config`           | CFG, NAM, XREPO, SYNC-010..030 rule detection                |
+| `sync`             | SYNC-040..070 — ODH build tags, hook pairs, RBAC isolation   |
 | `security`         | SEC-* rule detection                                         |
 | `bug-pattern`      | BUG-* rule detection                                         |
 | `migration`        | MIG-* rule detection                                         |

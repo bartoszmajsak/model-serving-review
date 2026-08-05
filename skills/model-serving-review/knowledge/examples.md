@@ -1016,6 +1016,104 @@ if not is_rhcl_installed():
 > "We expect RHCL to be installed before our test suite, so this should never happen. It might skip critical tests and
 > we won't notice until someone reports it."
 
+### envtest Is Not a Cluster (TST-060)
+
+**Trigger:** a diff adds or changes a test using `envtest`.
+
+```go
+// BAD: envtest has no garbage collector, so the child is never collected.
+// This Eventually burns the full timeout and then fails.
+Expect(k8sClient.Delete(ctx, isvc)).To(Succeed())
+Eventually(func() bool {
+    err := k8sClient.Get(ctx, deployKey, &appsv1.Deployment{})
+    return apierrors.IsNotFound(err)
+}, timeout).Should(BeTrue())
+
+// BAD: no kubelet, so availableReplicas stays zero and the ISVC never goes Ready
+Eventually(func() bool { return isvc.Status.IsReady() }, timeout).Should(BeTrue())
+
+// GOOD: simulate the controller envtest does not run, and say so
+// envtest has no kubelet — fake the Deployment status the reconciler reads.
+deploy.Status.AvailableReplicas = 1
+deploy.Status.ReadyReplicas = 1
+Expect(k8sClient.Status().Update(ctx, deploy)).To(Succeed())
+Eventually(func() bool { return isvc.Status.IsReady() }, timeout).Should(BeTrue())
+```
+
+```go
+// BAD: cluster-scoped, fixed name, no cleanup — leaks into every later test
+cr := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: "kserve-test-role"}}
+Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+
+// GOOD: unique name plus deferred deletion
+cr := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: "kserve-test-role-" + rand.String(5)}}
+Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+DeferCleanup(func() { Expect(k8sClient.Delete(ctx, cr)).To(Succeed()) })
+
+// BAD: racing the reconciler
+isvc.Spec.Predictor.MinReplicas = ptr.To(int32(2))
+Expect(k8sClient.Update(ctx, isvc)).To(Succeed())   // flakes with a conflict
+
+// GOOD
+Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+    if err := k8sClient.Get(ctx, key, isvc); err != nil { return err }
+    isvc.Spec.Predictor.MinReplicas = ptr.To(int32(2))
+    return k8sClient.Update(ctx, isvc)
+})).To(Succeed())
+```
+
+**Applicability boundary:** envtest only. A real-cluster e2e test does have a GC, a scheduler, and a kubelet, so
+asserting cascade deletion or readiness there is correct. A namespaced object in a test-unique namespace that the suite
+tears down does not need its own `DeferCleanup`.
+
+**Why:** envtest runs `kube-apiserver` and `etcd` and nothing else. Assertions about behavior supplied by the
+controller manager, scheduler, or kubelet are asserting something that cannot happen, and the failure shows up as a
+timeout rather than as a clear error.
+
+### OpenShift Compatibility in Python e2e Tests (TST-070)
+
+**Trigger:** a diff touches `test/e2e/**/*.py`.
+
+```python
+# BAD: restricted-v2 SCC rejects an explicit UID outside the namespace's assigned range
+SECURITY_CONTEXT = {"runAsNonRoot": True, "runAsUser": 65532, "runAsGroup": 65532}
+
+# GOOD: the shared fixture is gated behind RUN_AS_NON_ROOT, which OpenShift CI sets
+from .fixtures import LLMD_SIMULATOR_SECURITY_CONTEXT
+```
+
+```python
+# BAD: a command override bypasses the entrypoint wrapper that adds the TLS flags.
+# With enableLLMInferenceServiceTLS the HTTPS probe on :8000 never succeeds and the
+# ISVC hangs in MinimumReplicasUnavailable until the 600s timeout.
+args=["--port", "8000"]
+
+# GOOD: render the TLS flags conditionally — the controller expands these via ReplaceVariables
+args=[
+    "--port", "8000",
+    "{{ if .GlobalConfig.EnableTLS }}--ssl-certfile{{- end }}",
+    "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.crt{{- end }}",
+    "{{ if .GlobalConfig.EnableTLS }}--ssl-keyfile{{- end }}",
+    "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.key{{- end }}",
+]
+```
+
+```python
+# BAD: the AuthPolicy SAR check derives the namespace from the request path,
+# so a binding in KSERVE_TEST_NAMESPACE never matches an ISVC in e2e-test-llm-auth-*
+create_service_account_with_inference_access(sa_name)
+
+# GOOD
+create_service_account_with_inference_access(sa_name, namespace=test_case.namespace)
+```
+
+**Applicability boundary:** Python files under `test/e2e/`. The TLS clause applies only to workloads with a `command`
+override — the default entrypoint handles TLS itself. On the midstream repo `.rules/e2e-openshift-compat.md` is
+authoritative and may have been updated since this rubric.
+
+**Why:** all three fail only on OpenShift, and all three fail as a silent 600-second timeout rather than an error, so
+they cost a full CI cycle plus a debugging session each time.
+
 ## Cross-Repo Coordination
 
 ### Image Injection (XREPO-010, CFG-020)

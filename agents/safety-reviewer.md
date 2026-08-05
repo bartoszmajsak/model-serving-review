@@ -74,6 +74,13 @@ behavior based on PR descriptions.
 - TST: Check that bug fixes have regression tests.
 - TST: Check test assertions don't swallow errors (logging failure on green checks).
 - TST: Check test skipping doesn't hide critical failures.
+- TST-060: envtest has no garbage collector, no kube-controller-manager, no scheduler, and no kubelet. Flag assertions
+  on owner-reference cascade deletion, `availableReplicas`, or Pod readiness that the test does not simulate. Flag
+  `Create` without deferred cleanup, fixed-name cluster-scoped objects without deferred deletion, `time.Sleep` instead
+  of `Eventually`/`Consistently`, and updates without `retry.RetryOnConflict` during concurrent reconciliation.
+- TST-070 (`test/e2e/**/*.py`): hardcoded `runAsUser`/`runAsGroup` (OpenShift SCC), a `command` override on a workload
+  that must serve TLS, and auth-test RBAC created outside the per-test namespace. On ODH read
+  `$work_dir/.rules/e2e-openshift-compat.md` first.
 - BUG-010: Will this change cause unnecessary pod rollouts on upgrade? Check pod template hash impact.
 - BUG-020: Are all image references covered by kustomize replacements? Any placeholder images?
 - BUG-030: Do security context changes break CDI GPU injection, modelcar, or xKS?

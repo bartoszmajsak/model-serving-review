@@ -382,7 +382,32 @@ fail loudly so regressions are noticed.
 
 **TST-060 | SHOULD | Integration tests**
 Add integration tests in `*_int_test.go` for controller logic. Smoke E2E tests for new features when resource
-requirements allow.
+requirements allow. Every distinct reconciliation branch needs an integration test — a unit test on an extracted pure
+helper proves the helper works, not that the reconciler reaches it.
+
+Know what envtest does not give you. It runs an API server and etcd, and nothing else: no garbage collector, no
+kube-controller-manager, no scheduler, no kubelet. So owner-reference cascade deletion never happens (the child object
+stays after the parent is deleted), `status.availableReplicas` stays zero forever, and Pods never leave `Pending`. A
+test asserting any of those without simulating it is asserting a fiction. Simulate the missing controller explicitly —
+patch the Deployment status the test needs, delete children by hand — and say so in a comment.
+
+Flag these envtest anti-patterns, which cause cross-test pollution and flakes:
+
+- a `Create` with no deferred cleanup;
+- a cluster-scoped object (ClusterRole, ClusterRoleBinding, IngressClass, CRD) created with a fixed name and no
+  explicit deferred deletion — it outlives the test and the next one either collides or silently inherits it;
+- `time.Sleep` where `Eventually`/`Consistently` belongs;
+- an object update with no `retry.RetryOnConflict` while the controller is concurrently reconciling the same object.
+
+**TST-070 | MUST | Python e2e tests under `test/e2e/`**
+These tests run on both vanilla Kubernetes and OpenShift, and OpenShift-only failures are opaque — pods running but
+never ready, 600-second timeouts with no diagnostics. Three things break: a hardcoded `runAsUser`/`runAsGroup` (the
+`restricted-v2` SCC rejects UIDs outside the namespace's assigned range — import the shared
+`LLMD_SIMULATOR_SECURITY_CONTEXT` fixture instead); a `command` override on a workload that must serve TLS (the
+override bypasses the entrypoint wrapper that passes `--ssl-certfile`/`--ssl-keyfile`, so the HTTPS readiness probe
+never succeeds and the ISVC sits in `MinimumReplicasUnavailable`); and auth-test RBAC created outside the per-test
+namespace (the gateway AuthPolicy's SAR check derives the namespace from the request path, so a binding elsewhere never
+matches). On the midstream repo, `.rules/e2e-openshift-compat.md` is authoritative — read it and apply it.
 
 ## Naming & Resource Conventions (NAM-*)
 
