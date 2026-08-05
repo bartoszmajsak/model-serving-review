@@ -50,7 +50,9 @@ for fixture_dir in "$RESULTS_DIR"/*/; do
 
   # Parse the output
   output=$(cat "$output_file")
-  found_rules=$(echo "$output" | jq -r '.[].rule_id' 2>/dev/null | sort -u)
+  # A merged finding carries every rule that caught it in rule_ids, so recall and
+  # precision see all of them while the finding still counts once.
+  found_rules=$(echo "$output" | jq -r '.[] | (.rule_ids // [.rule_id])[]' 2>/dev/null | sort -u)
 
   # Check each assertion
   fixture_pass=true

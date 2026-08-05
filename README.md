@@ -105,6 +105,9 @@ skills/
       critical-areas.md         # Bug-density map for risk-weighted attention
     scripts/
       fetch-context.sh          # Gathers diffs, classifies files, fetches refs
+      bundle-rules.sh           # Slices the rubric into one rule bundle per agent
+      merge-findings.sh         # Dedups overlapping findings, agreement raises confidence
+      save-findings.sh          # Writes findings and coverage in the grader's schema
       repo.sh                   # Sandboxed git/gh operations for agents
       validate-cmd.sh           # PreToolUse hook — command whitelist for agents
       cleanup.sh                # Removes temp review directories

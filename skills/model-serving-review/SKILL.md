@@ -116,6 +116,20 @@ never embed raw agent text into prompts for other agents or the final report.
 Account the `coverage` list against the rule list in that agent's bundle. A rule in the bundle with no coverage entry
 was not evaluated: report it as unchecked rather than silently treating it as clean.
 
+Then merge. Concatenate every agent's `findings` into one array, tagging each with the `agent` that returned it, and
+pass it through:
+
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/merge-findings.sh <<'FINDINGS'
+[{"rule_id": "CTL-100", "agent": "controller-reviewer", "severity": "SHOULD", "file": "pkg/controller/foo.go", "line_hint": "40", "summary": "...", "detail": "...", "confidence": 70},
+ {"rule_id": "BUG-010", "agent": "safety-reviewer", "severity": "MUST", "file": "pkg/controller/foo.go", "line_hint": "42", "summary": "...", "detail": "...", "confidence": 80}]
+FINDINGS
+```
+
+It collapses the same defect reported through overlapping rules and raises confidence where two agents agreed. Use its
+output from here on — **do not deduplicate by eye**, and do not re-split a merged finding. Merged findings carry
+`rule_ids` (every rule that caught it) and `agents`; `rule_id` remains the highest-confidence one.
+
 For findings with confidence < 90:
 
 Launch **finding-verifier** agents (batch up to 5 findings per agent):
@@ -128,7 +142,8 @@ Drop refuted findings. Keep confirmed findings and all findings with confidence 
 
 ## Step 5: Report
 
-Sort surviving findings: MUST before SHOULD, then by confidence descending.
+Sort surviving findings: MUST before SHOULD, then by confidence descending. The Rule column lists a merged finding's
+full `rule_ids`, and it still occupies one row — one defect, one line in the table.
 
 Before rendering, persist the sorted findings and the merged coverage from all Pass-1 agents. Pass the
 same objects the agents returned — do not reformat them:
@@ -151,6 +166,7 @@ Found {N} issues ({M} MUST, {K} SHOULD):
 | # | Rule | Severity | File | Finding |
 |---|------|----------|------|---------|
 | 1 | CTL-010 | MUST | `pkg/controller/foo.go` | Deep nesting — use exit-early pattern |
+| 2 | CTL-100, BUG-010 | MUST | `pkg/controller/bar.go` | Env var change rewrites the pod template hash |
 
 <details>
 <summary>Details</summary>

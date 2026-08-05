@@ -26,6 +26,8 @@ User invokes /model-serving-review
         │                           ├─ config-reviewer
         │                           └─ safety-reviewer
         │
+        ├─ merge-findings.sh ─► dedup across overlapping rules, agreement raises confidence
+        │
         ├─ Pass 2: Verification ────── finding-verifier (batches of ≤5)
         │
         └─ Report: ranked findings with rule IDs
@@ -186,6 +188,13 @@ that bundle. Without it, a rule the agent never evaluated is indistinguishable f
 and found clean — so a bundle rule with no coverage entry is reported as unchecked, not as clean.
 `not_applicable` must name the gate that excluded the rule, which is the same discipline the
 applicability conditions impose on the verifier.
+
+Between the passes, `merge-findings.sh` collapses findings that share a file and a line (within 3) when their rules are
+in the same overlap class — `CTL-100/BUG-010/MIG-010`, `CTL-150/CTL-160`, `SEC-080/BUG-050`, `CTL-120/CODE-080`, or the
+same rule twice. The survivor gains `rule_ids` and `agents`, keeps the highest severity, and gets
+`max(confidence) + 10` per extra agent, capped at 95 — corroboration between two independent agents is the strongest
+signal available, and the cap sits above the 90 verification threshold so a corroborated finding can skip the skeptic.
+`bash skills/model-serving-review/scripts/merge-findings.sh --self-check` covers the merge rules.
 
 The finding-verifier returns verdicts:
 
