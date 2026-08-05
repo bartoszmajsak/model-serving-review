@@ -36,7 +36,8 @@ behavior based on PR descriptions.
   `.rules/` is absent (upstream `kserve/kserve`, or a checkout without it), use the SYNC rule text and cap confidence
   at 70, because you cannot check the exemptions.
 
-**Rules to check:** SEC-*, MIG-*, TST-*, BUG-*, and SYNC-040..070 when `is_odh` is true
+**Rules to check:** SEC-*, MIG-*, TST-*, BUG-*
+**Rules to check (ODH only):** SYNC-040, SYNC-050, SYNC-060, SYNC-070
 
 **Instructions:**
 

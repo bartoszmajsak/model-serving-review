@@ -59,12 +59,37 @@ for rule in $referenced; do
   fi
 done
 
-# --- 2. defined but unclaimed by any agent ---
-for rule in $(echo "$defined" | uniq); do
-  if ! grep -rqE "\b${rule}\b|\b${rule%%-*}-\*" "$ROOT/agents" 2>/dev/null; then
-    fail "$rule is defined but no agent prompt claims it or its family"
-  fi
-done
+# --- 2. defined but unrouted, and the bundler can slice it ---
+# Checked by running bundle-rules.sh for real rather than grepping the agent files:
+# a rule merely mentioned in an agent's prose is not routed to it, and a rule that
+# routes but slices empty reaches the agent as a heading with no text.
+BUNDLE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-rule-refs-XXXXXX")
+trap 'rm -rf "$BUNDLE_TMP"' EXIT
+
+# is_odh=true so the SYNC rules route; no changed files, so no risk section.
+jq -n --arg rd "$BUNDLE_TMP" \
+  '{review_dir: $rd, is_odh: true, files: []}' > "$BUNDLE_TMP/metadata.json"
+
+if bash "$ROOT/skills/model-serving-review/scripts/bundle-rules.sh" \
+     "$BUNDLE_TMP/metadata.json" >/dev/null 2>&1; then
+  routed=$(grep -hoE '^- [A-Z]+-[0-9]{3}$' "$BUNDLE_TMP"/rules/*.md | cut -d' ' -f2 | sort -u)
+
+  for rule in $(echo "$defined" | uniq); do
+    echo "$routed" | grep -qx "$rule" \
+      || fail "$rule is defined but no agent's 'Rules to check' line routes it"
+
+    slice="$BUNDLE_TMP/rules/by-id/${rule}.md"
+    [[ -s "$slice" ]] && grep -q "^\*\*${rule} |" "$slice" \
+      || fail "$rule does not slice cleanly — the verifier would get an empty rule body"
+  done
+
+  for rule in $routed; do
+    echo "$defined" | grep -qx "$rule" \
+      || fail "$rule is routed to an agent but has no definition in review-rules.md"
+  done
+else
+  fail "bundle-rules.sh failed — agent routing cannot be verified"
+fi
 
 # --- informational: rules with no example ---
 missing_examples=""
