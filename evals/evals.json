@@ -142,7 +142,7 @@
       "id": "api-030-breaking-rename",
       "category": "api",
       "prompt": "Review the code changes in this repo for API design correctness.",
-      "description": "Spec field renamed from old name to new name — breaking change.",
+      "description": "Spec field renamed from old name to new name \u2014 breaking change.",
       "expected_output": "Should flag API-030 for breaking field rename.",
       "assertions": {
         "expected_rules": [
@@ -465,7 +465,7 @@
       "id": "mig-050-removed-template-func",
       "category": "migration",
       "prompt": "Review the code changes for migration safety.",
-      "description": "Go template function removed from ReplaceVariables in config_merge.go — breaks shipped configs.",
+      "description": "Go template function removed from ReplaceVariables in config_merge.go \u2014 breaks shipped configs.",
       "expected_output": "Should flag MIG-050 for removing a shipped template function.",
       "assertions": {
         "expected_rules": [
@@ -567,7 +567,7 @@
       "id": "clean-controller",
       "category": "negative",
       "prompt": "Review the code changes in this repo.",
-      "description": "Clean controller code following all best practices — no violations expected.",
+      "description": "Clean controller code following all best practices \u2014 no violations expected.",
       "expected_output": "Should produce zero or near-zero findings.",
       "assertions": {
         "expected_rules": [],
@@ -579,7 +579,7 @@
       "id": "clean-config",
       "category": "negative",
       "prompt": "Review the configuration changes in this repo.",
-      "description": "Clean config changes following all conventions — no violations expected.",
+      "description": "Clean config changes following all conventions \u2014 no violations expected.",
       "expected_output": "Should produce zero or near-zero findings.",
       "assertions": {
         "expected_rules": [],
@@ -623,7 +623,7 @@
       "id": "multi-dimension-mixed",
       "category": "integration",
       "prompt": "Review the code changes in this repo.",
-      "description": "Changes spanning controller code, API types, and config — should trigger all four review agents.",
+      "description": "Changes spanning controller code, API types, and config \u2014 should trigger all four review agents.",
       "expected_output": "Should flag issues across multiple dimensions: at least one CTL/CODE rule, one API rule, and one CFG/NAM rule.",
       "assertions": {
         "expected_rules": [
@@ -867,6 +867,100 @@
       "assertions": {
         "unexpected_rules": [
           "SEC-090"
+        ],
+        "max_findings": 1
+      }
+    },
+    {
+      "id": "api-070-unsafe-numeric-types",
+      "category": "api",
+      "prompt": "Review the code changes in this repo for API design correctness.",
+      "description": "New spec fields use bare int, uint16, float64, and an unsuffixed duration instead of Kubernetes wire-safe types.",
+      "expected_output": "Should flag API-070 for non-portable numeric API types on the newly added fields.",
+      "assertions": {
+        "expected_rules": [
+          "API-070"
+        ],
+        "expected_files": [
+          "pkg/apis/serving/v1alpha1/llm_router_types.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 4
+      }
+    },
+    {
+      "id": "api-080-required-empty-string",
+      "category": "api",
+      "prompt": "Review the code changes in this repo for API design correctness.",
+      "description": "A required string field whose contract rejects the empty value has no MinLength, and a required field is declared as a pointer.",
+      "expected_output": "Should flag API-080 for required-but-unconstrained BucketName and for the required pointer SecretRef.",
+      "assertions": {
+        "expected_rules": [
+          "API-080"
+        ],
+        "expected_files": [
+          "pkg/apis/serving/v1alpha1/llm_storage_types.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "api-090-unreachable-nested-default",
+      "category": "api",
+      "prompt": "Review the code changes in this repo for API design correctness.",
+      "description": "A required field with a default is added under an optional parent that has no default, so neither the default nor the requirement applies when the parent is omitted.",
+      "expected_output": "Should flag API-090 for nested defaulting that is skipped when the optional parent is absent.",
+      "assertions": {
+        "expected_rules": [
+          "API-090"
+        ],
+        "expected_files": [
+          "pkg/apis/serving/v1alpha1/llm_inference_service_types.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "api-100-phase-and-bare-conditions",
+      "category": "api",
+      "prompt": "Review the code changes in this repo for API design correctness.",
+      "description": "A genuine []metav1.Condition status list is added with no listType/listMapKey/patchStrategy markers, alongside a new status.phase single-state string.",
+      "expected_output": "Should flag API-100 for missing associative-list markers on the condition slice and for the deprecated phase field.",
+      "assertions": {
+        "expected_rules": [
+          "API-100"
+        ],
+        "expected_files": [
+          "pkg/apis/gie/v1alpha2/inference_pool_types.go"
+        ],
+        "min_findings": 1,
+        "max_findings": 3
+      }
+    },
+    {
+      "id": "negative-api-080-legit-zero-value",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for API design correctness.",
+      "description": "Precision check: required fields whose zero value is legitimate (scale-to-zero minReplicas, empty annotation map) and correctly typed optional pointers.",
+      "expected_output": "Should NOT flag API-080. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "API-080"
+        ],
+        "max_findings": 1
+      }
+    },
+    {
+      "id": "negative-api-100-duck-status",
+      "category": "negative",
+      "prompt": "Review the code changes in this repo for API design correctness.",
+      "description": "Precision check: a knative duckv1.Status type gains a condition registered in the living ConditionSet. Knative's apis.Condition has no observedGeneration and the ConditionSet owns the list.",
+      "expected_output": "Should NOT flag API-100 for missing metav1.Condition markers or observedGeneration. Zero or near-zero findings.",
+      "assertions": {
+        "unexpected_rules": [
+          "API-100"
         ],
         "max_findings": 1
       }

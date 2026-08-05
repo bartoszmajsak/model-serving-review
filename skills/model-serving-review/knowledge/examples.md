@@ -3,6 +3,188 @@
 Concrete patterns from actual review history. Each example shows the trigger, what to flag, and a representative
 comment.
 
+## API Design
+
+### Wire-Safe Numeric Types (API-070)
+
+**Trigger:** a diff adds or changes a numeric field in a `*_types.go` under `pkg/apis/`.
+
+```go
+// BAD
+type RouterSpec struct {
+    MaxConnections  int     `json:"maxConnections,omitempty"`  // platform-width, invalid OpenAPI type
+    Weight          uint16  `json:"weight,omitempty"`          // no JSON/OpenAPI representation
+    ScaleFactor     float64 `json:"scaleFactor,omitempty"`     // float rounding in a spec
+    Timeout         int64   `json:"timeout,omitempty"`         // unit lives only in the comment
+    Memory          string  `json:"memory,omitempty"`          // hand-parsed quantity
+}
+
+// GOOD
+type RouterSpec struct {
+    MaxConnections  *int32             `json:"maxConnections,omitempty"`
+    Weight          *int32             `json:"weight,omitempty"`
+    ScaleFactor     *resource.Quantity `json:"scaleFactor,omitempty"`
+    TimeoutSeconds  *int64             `json:"timeoutSeconds,omitempty"`
+    Memory          *resource.Quantity `json:"memory,omitempty"`
+}
+
+// NOT A FINDING: shipped fields keep their types
+type ServingRuntimePodSpec struct {
+    Replicas *uint16 `json:"replicas,omitempty"`  // v1alpha1, already released
+}
+```
+
+**Applicability boundary:** added or changed fields only. KServe ships `int` and `*uint16` API fields
+(`ServingRuntimeSpec.Replicas`, `PredictorSpec.BatchSize`, `ModelStatus.FailedCopies`); retyping them is a breaking
+change under API-030 and costs more than the inconsistency.
+
+**Why:** `int` has no fixed width and no OpenAPI mapping, unsigned types force every client to cast, and a bare number
+whose unit lives in a comment is guessed wrong by the next caller.
+
+### Required Does Not Mean Non-Empty (API-080)
+
+**Trigger:** a diff adds a field with `+required`, `+optional`, or any `+kubebuilder:validation` marker.
+
+```go
+// BAD: required guarantees presence, not content — "" passes
+// +required
+Name string `json:"name"`
+
+// BAD: required and a pointer — "absent" and "zero" become indistinguishable for no gain
+// +required
+Replicas *int32 `json:"replicas"`
+
+// GOOD: the contract rejects the zero value, so constrain it
+// +required
+// +kubebuilder:validation:MinLength=1
+Name string `json:"name"`
+
+// GOOD: required, non-pointer
+// +required
+Replicas int32 `json:"replicas"`
+
+// GOOD: optional is a pointer with omitempty
+// +optional
+Weight *int32 `json:"weight,omitempty"`
+
+// NOT A FINDING: zero is a legitimate value here
+// +required
+MinReplicas int32 `json:"minReplicas"`   // scale-to-zero is the point
+
+// NOT A FINDING: empty is legitimate
+// +optional
+Overrides map[string]string `json:"overrides,omitempty"`
+```
+
+**Applicability boundary:** ask for `MinLength`/`Minimum`/`MinItems` only when the field's own contract rejects its
+zero value. Adding them reflexively breaks valid existing objects on the next CRD apply. Before filing a "missing
+marker", check whether the marker is inherited from an embedded struct, and check the generated CRD under
+`config/crd/full/` — a misspelled marker is silently dropped by controller-gen while the Go source still reads fine.
+
+**Why:** the schema is what the API server enforces. Go markers are only the input to it.
+
+### Nested Validation Under an Optional Parent (API-090)
+
+**Trigger:** a diff adds a default or a required child inside a struct whose parent field is `+optional`.
+
+```go
+// BAD: none of this runs when `router` is absent from the CR
+type LLMInferenceServiceSpec struct {
+    // +optional
+    Router *RouterSpec `json:"router,omitempty"`
+}
+
+type RouterSpec struct {
+    // +required
+    // +kubebuilder:default="round_robin"
+    Strategy string `json:"strategy"`
+}
+```
+
+```yaml
+# The object below is accepted, and spec.router.strategy never exists.
+spec:
+  model:
+    uri: hf://meta-llama/Llama-3.1-8B
+```
+
+```go
+// GOOD: make the parent materialize, and make its default satisfy the child
+// +optional
+// +kubebuilder:default={}
+Router *RouterSpec `json:"router,omitempty"`
+```
+
+```yaml
+# generated CRD — confirm the parent default is present, not just the child's
+router:
+  type: object
+  default: {}
+  properties:
+    strategy:
+      type: string
+      default: round_robin
+```
+
+**Applicability boundary:** only when the child invariant must hold unconditionally. A genuinely opt-in subtree
+(`spec.router` meaning "no router at all") is correct as-is — an absent parent is a real state, not a missing default.
+Verify from the generated CRD; whether parent defaulting cascades is a property of the emitted schema.
+
+**Why:** structural schema defaulting walks only the branches that exist in the stored object. An absent parent skips
+the entire subtree, so the controller reads a zero value it was told could never occur.
+
+### Conditions Follow the Type's Existing Machinery (API-100)
+
+**Trigger:** a diff adds a status type, a condition field, or a new state-reporting field.
+
+```go
+// NOT A FINDING: this is KServe's norm. duckv1.Status owns the condition list.
+type LLMInferenceServiceStatus struct {
+    duckv1.Status `json:",inline"`
+    // ...
+}
+// knative's apis.Condition has NO ObservedGeneration field, and apis.ConditionSet
+// already manages lastTransitionTime, the Ready rollup, and reason/message propagation.
+// Reviewable checks for these types live in CTL-080, not here.
+
+// BAD: a genuine []metav1.Condition with no list semantics
+type InferencePoolStatus struct {
+    Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// GOOD
+type InferencePoolStatus struct {
+    // +listType=map
+    // +listMapKey=type
+    // +patchStrategy=merge
+    // +patchMergeKey=type
+    // +optional
+    Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+}
+
+// BAD: a new single-state status string
+type Status struct {
+    Phase string `json:"phase,omitempty"`  // "Pending" | "Running" | "Failed"
+}
+
+// GOOD: state goes in conditions, which compose
+meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+    Type:               "Ready",
+    Status:             metav1.ConditionFalse,
+    Reason:             "WorkloadNotReady",
+    ObservedGeneration: obj.Generation,
+})
+```
+
+**Applicability boundary:** establish which machinery the type uses *first*. Telling a `duckv1.Status` type to adopt
+`metav1.Condition` markers or per-condition `observedGeneration` is a demand to break every existing consumer. In
+KServe only `pkg/apis/gie/` (the upstream-shaped InferencePool family) uses `[]metav1.Condition`. The `status.phase`
+clause is preventive — KServe has none today, so flag new ones only.
+
+**Why:** without `listType=map`/`listMapKey=type`, server-side apply treats the condition list as atomic and two
+controllers writing different conditions clobber each other. A `phase` string cannot express two simultaneous facts,
+which is why upstream deprecated it.
+
 ## Controller Patterns
 
 ### Exit Early (CTL-010)

@@ -12,7 +12,11 @@ have schema validation and versioning.
 
 **API-020 | MUST | Fields with enum validation**
 Avoid strict enum validation when values may grow over time — new methods, new options. Use open enums or string with
-documented values.
+documented values. The direction of authorship decides how strict to be: a *user-authored* spec field is where a closed
+enum hurts, because every new value is an API change that old validating webhooks and old CRD schemas reject. A
+*controller-authored* status enum is the opposite — clients switch on those values, so adding one can break consumers
+that assumed the set was complete. Document the open-ended-ness in the field's godoc either way, and require that
+clients tolerate unknown values.
 
 **API-030 | MUST | New spec fields**
 Adding a status condition or spec field is non-breaking. Removing or renaming is breaking. Default to additive changes.
@@ -27,7 +31,49 @@ shape against all deployment topologies.
 
 **API-060 | SHOULD | Configuration scope**
 Start with top-level configuration that propagates to all managed components. Only add per-component overrides when a
-concrete use case requires asymmetric config.
+concrete use case requires asymmetric config. Prefer the minimum-capability, intent-oriented field over an
+implementation knob: express what the user wants (`maxConcurrency`, `scheduling: gang`) rather than the mechanism the
+controller currently uses to achieve it (a scheduler plugin name, a specific annotation, a tuning flag of the
+underlying runtime). Implementation knobs become permanent contracts that block replacing the implementation.
+
+**API-070 | MUST | New or changed public API fields with numeric types**
+Numeric API fields must use Kubernetes wire-safe types: `int32` or `int64`, never bare `int` (its width is
+platform-dependent and it is not a valid OpenAPI type) and never an unsigned type (`uint`, `uint16`, ... have no
+JSON/OpenAPI representation and force client-side casts). Resource amounts use `resource.Quantity`; durations use
+`metav1.Duration` or an explicitly unit-suffixed integer field (`timeoutSeconds`), never a bare number whose unit lives
+only in a comment. Prefer floating point never appearing in a spec field — `resource.Quantity` covers fractional
+amounts without float rounding surprises. This applies to fields the diff **adds or changes**. KServe already ships
+`int` and `*uint16` fields (`ServingRuntimeSpec.Replicas`, `BatchSize`, `FailedCopies`); changing those is a breaking
+API change (API-030), so do not propose it — flag only the new ones.
+
+**API-080 | MUST | New or changed fields with validation markers**
+Follow the surrounding package's explicit required/optional marker convention — packages that mark every field must not
+gain an unmarked one. A required marker guarantees the field is *present*, not that it is *meaningful*: if the field's
+contract rejects its zero value, add `MinLength`, `Minimum`, `MinItems`, or a CEL rule as well. Do not add those
+markers reflexively — an empty string or a zero replica count is a legitimate value in plenty of fields. Optional
+fields are pointers with `+optional` and `omitempty`; required fields must not be pointers, since a required pointer
+makes "absent" and "zero" indistinguishable for no benefit. Verify against the generated CRD, not the Go markers: a
+misspelled or misplaced marker is silently dropped by controller-gen and the Go source still looks correct.
+
+**API-090 | MUST | Validation or defaulting on fields nested under an optional parent**
+Nested validation and defaulting do not run when the optional parent object is absent — the whole subtree is skipped,
+so a required child field with a default never materializes. If a child invariant or default must always hold, the
+parent must be present: give it `+kubebuilder:default={}` (or make it required) and confirm that default satisfies
+every required child. Check the generated CRD schema, since whether the parent default triggers child defaulting is a
+property of the emitted schema, not of the Go type.
+
+**API-100 | MUST | New status types, condition fields, or state-reporting fields**
+Match the condition machinery the type already uses. KServe status types (`InferenceService`, `LLMInferenceService`,
+`TrainedModel`, ...) embed knative `duckv1.Status` and manage conditions through `apis.ConditionSet`; knative's
+`apis.Condition` has no `observedGeneration` field and the ConditionSet already handles `lastTransitionTime`, the Ready
+rollup, and reason/message propagation. Do **not** ask a duck-typed status to adopt `metav1.Condition` markers or
+per-condition `observedGeneration` — that is a breaking rewrite of the type. The reviewable checks for those types live
+in CTL-080. For a type that genuinely uses `[]metav1.Condition` (a new type with no knative precedent, or the
+upstream-shaped InferencePool family in `pkg/apis/gie/`), require the associative-list markers
+(`+listType=map`, `+listMapKey=type`), `+patchStrategy=merge`, and `observedGeneration` set on every write. In both
+cases condition `type` and `reason` values are a stable API contract — renaming one breaks every consumer that
+switches on it. Finally, a new `phase`-style single-state status string is a deprecated pattern; new state reporting
+belongs in conditions. KServe has no `status.phase` today, so this clause is preventive — flag new ones only.
 
 ## Controller & Reconciler Patterns (CTL-*)
 
