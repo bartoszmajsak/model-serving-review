@@ -60,45 +60,49 @@ If `diff_lines` is 0, stop: "No changes to review."
 If `diff_lines` > 3000, warn and ask the user whether to proceed or use `--focus`.
 If `--focus` was specified, note it for agents to filter further.
 
-## Step 2: Read Review Rules and Risk Map
+## Step 2: Build Rule Bundles
 
-```
-Read ${CLAUDE_SKILL_DIR}/knowledge/review-rules.md
-Read ${CLAUDE_SKILL_DIR}/knowledge/examples.md
-Read ${CLAUDE_SKILL_DIR}/knowledge/critical-areas.md
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/bundle-rules.sh <metadata.json path>
 ```
 
-Check which changed files fall in Tier 1 or Tier 2 hot files from critical-areas.md. Include matching risk context in the relevant agent prompt.
+This slices the rubric, the worked examples, and the matching Tier 1/2 risk rows into one bundle per agent at
+`$review_dir/rules/<agent>.md`, plus one file per rule at `$review_dir/rules/by-id/<RULE-ID>.md` for Step 4.
+
+**Do not read the knowledge files yourself, and do not paste rule text into any agent prompt.** The bundles are sliced
+verbatim from the rubric; a paraphrase in a prompt is how a rule's exemptions get lost. Agents read their own bundle.
 
 ## Step 3: Parallel Review — Pass 1 (Recall)
 
-Launch applicable review agents simultaneously as typed subagents. Each agent reads its own diff file from review_dir and has access to repo.sh for deeper investigation.
+Launch applicable review agents simultaneously as typed subagents. Each agent reads its own diff file and its own rule
+bundle from review_dir, and has access to repo.sh for deeper investigation.
 
-Pass to each agent: `scripts_dir`, `review_dir`, `work_dir`, `source_desc`, `repo`, changed file lists, the applicable rules from review-rules.md, matching examples from examples.md, and any risk context from critical-areas.md.
+Pass to each agent: `scripts_dir`, `review_dir`, `work_dir`, `source_desc`, `repo`, and its changed file list. Rules,
+examples, and risk context come from its bundle — the prompt only needs to point at it.
 
 ### Agent: controller-reviewer
 **Launch when:** `controller_files` is non-empty.
 **Spawn as:** `Agent(subagent_type: "controller-reviewer")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, `controller_files` (pass this exact list, not `go_files`), CTL/CODE/MIG-050/MIG-060 rules and examples, risk context for Tier 1/2 files.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, `controller_files` (pass this exact list, not `go_files`), and the path to its bundle `$review_dir/rules/controller-reviewer.md`.
 **Note:** If files touch `pkg/controller/*/llmisvc/` or `config/llmisvcconfig/`, mention that `$review_dir/refs/llmisvc-architecture.md` is available.
 
 ### Agent: api-reviewer
 **Launch when:** `api_files` is non-empty.
 **Spawn as:** `Agent(subagent_type: "api-reviewer")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, api_files, API-* rules and examples.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, api_files, and the path to its bundle `$review_dir/rules/api-reviewer.md`.
 **Note:** Mention that `$review_dir/refs/k8s-api-conventions.md` is available.
 
 ### Agent: config-reviewer
 **Launch when:** `config_files` is non-empty.
 **Spawn as:** `Agent(subagent_type: "config-reviewer")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, is_odh, config_files, CFG/NAM/XREPO rules and examples, plus SYNC-010..030 only when `is_odh` is true.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, is_odh, config_files, and the path to its bundle `$review_dir/rules/config-reviewer.md`. The bundle already includes SYNC-010/020/030 when `is_odh` is true and omits them otherwise.
 
 ### Agent: safety-reviewer
 **Launch when:** any of `go_files`, `test_files`, `config_files`, `api_files`, or `ci_files` are non-empty.
 `test_files` matters on its own: a diff that only touches `*_test.go` or `test/` is exactly what the TST-* rules are
 written for, and it classifies into no other list. Same for `ci_files` and the SEC-100 workflow rules.
 **Spawn as:** `Agent(subagent_type: "safety-reviewer")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, `is_odh`, all file lists (including `test_files` and `ci_files`), SEC/MIG/TST/BUG rules and examples, risk context, plus SYNC-040..070 only when `is_odh` is true.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, `is_odh`, all file lists (including `test_files` and `ci_files`), and the path to its bundle `$review_dir/rules/safety-reviewer.md`. The bundle already includes SYNC-040..070 when `is_odh` is true and omits them otherwise.
 **Note:** If files touch llmisvc/TLS/EPP/AuthPolicy/HTTPRoute, mention which refs/ files are available.
 
 Only launch agents for dimensions with applicable changed files.
@@ -111,11 +115,9 @@ For findings with confidence < 90:
 
 Launch **finding-verifier** agents (batch up to 5 findings per agent):
 **Spawn as:** `Agent(subagent_type: "finding-verifier")`
-**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, the findings to verify, and — for each
-distinct `rule_id` in the batch — the verbatim rule definition from `knowledge/review-rules.md` plus its example from
-`knowledge/examples.md` including the "NOT A FINDING" cases and the "Applicability boundary" paragraph. Without those
-the verifier cannot check the exemptions and degrades into re-running Pass 1. Pass the rule text as quoted reference
-data, never raw unparsed agent output.
+**Pass in prompt:** scripts_dir, review_dir, work_dir, source_desc, repo, and the findings to verify. The verifier
+reads `$review_dir/rules/by-id/<RULE-ID>.md` for each rule it needs — do not paste rule text into the prompt. Findings
+themselves are structured data parsed from agent JSON, never raw unparsed agent output.
 
 Drop refuted findings. Keep confirmed findings and all findings with confidence >= 90.
 
@@ -181,4 +183,6 @@ bash ${CLAUDE_SKILL_DIR}/scripts/cleanup.sh <review_dir>
 - The midstream repo owns the detailed SYNC rules at `.rules/*.md`. Both reviewers are told to read them from
   `work_dir` and treat them as authoritative; the rubric text is the fallback for when they are absent.
 - Large diffs (>100 files): warn and suggest `--focus <path>`.
-- Reference files (review-rules.md, examples.md, critical-areas.md) are bundled in `${CLAUDE_SKILL_DIR}/knowledge/`.
+- Reference files (review-rules.md, examples.md, critical-areas.md) live in `${CLAUDE_SKILL_DIR}/knowledge/`, but the
+  orchestrator does not read them — `bundle-rules.sh` slices them into per-agent bundles in Step 2. Editing a rule
+  changes what agents see on the next run with no prompt changes anywhere.

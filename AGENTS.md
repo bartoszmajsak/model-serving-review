@@ -3,6 +3,12 @@
 This plugin uses five specialized subagents, orchestrated by the skill in `skills/model-serving-review/SKILL.md`. Do not
 invoke them directly — the skill handles agent selection, prompt construction, and result aggregation.
 
+**Rule text never travels in a prompt.** `bundle-rules.sh` slices the rubric, the worked examples, and the matching risk
+rows into `$review_dir/rules/<agent>.md`, and each agent reads its own. The verifier reads `rules/by-id/<RULE-ID>.md`.
+The **Rules:** line under each agent below is the routing spec, and it is parsed from that agent's
+`**Rules to check:**` line — edit the agent file, not this one, and `evals/check-rule-refs.sh` will confirm every rule
+still routes somewhere and still slices to a non-empty body.
+
 ## Architecture
 
 ```
@@ -12,6 +18,8 @@ User invokes /model-serving-review
    SKILL.md (orchestrator)
         │
         ├─ fetch-context.sh ──► diffs, metadata, cross-repo refs
+        │
+        ├─ bundle-rules.sh ───► rules/<agent>.md, rules/by-id/<RULE>.md
         │
         ├─ Pass 1: Parallel review ─┬─ controller-reviewer
         │                           ├─ api-reviewer
