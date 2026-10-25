@@ -99,7 +99,7 @@ Claude Code:
 | `--unstaged`     | Review only unstaged changes                              |
 | `--branch`       | Same as empty (explicit)                                  |
 | `--base <ref>`   | Diff HEAD vs a specific ref                               |
-| `--repo <path>`  | Use an existing local repository instead of a remote clone |
+| `--repo <path>`  | Review this local repository instead of the cwd (bare path works too) |
 | `<PR-URL>`       | GitHub PR URL — checks out into a temporary repository; needs network access |
 | `--focus <path>` | Only review files matching this path prefix               |
 | `--comment <PR>` | Post results as a PR comment (requires user approval)     |

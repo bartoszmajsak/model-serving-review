@@ -20,11 +20,23 @@ while [[ $# -gt 0 ]]; do
     --branch)   MODE="branch"; shift ;;
     --base)     MODE="base"; BASE_REF="$2"; shift 2 ;;
     --repo)     REPO_PATH="$2"; shift 2 ;;
+    # Read by the orchestrator. Skipping the value keeps it from being taken as a repo path.
+    --focus|--comment) shift 2 ;;
     https://github.com/*/pull/*)
       PR_URL="$1"; shift ;;
-    *)          shift ;;
+    *)
+      # A dropped argument reviews the cwd instead of the checkout the caller meant.
+      [[ -d "$1" ]] || { echo "error: unknown argument or missing directory: $1" >&2; exit 1; }
+      REPO_PATH="$1"; shift ;;
   esac
 done
+
+# Resolve before mktemp so a bad path leaves no review directory behind.
+if [[ -n "$REPO_PATH" ]]; then
+  toplevel=$(git -C "$REPO_PATH" rev-parse --show-toplevel 2>/dev/null) \
+    || { echo "error: not a git repository: $REPO_PATH" >&2; exit 1; }
+  REPO_PATH="$toplevel"
+fi
 
 # Always create a review directory under /tmp
 REVIEW_DIR=$(mktemp -d "/tmp/model-serving-review-XXXXXX")
@@ -45,7 +57,7 @@ if [[ -n "$PR_URL" ]]; then
   cd "$WORK_DIR"
   MODE="branch"
 else
-  WORK_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  WORK_DIR=${REPO_PATH:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
   cd "$WORK_DIR"
 fi
 

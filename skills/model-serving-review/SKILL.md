@@ -26,7 +26,7 @@ Review Model Serving code changes against domain-specific rules extracted from e
 - **`--unstaged`** — review only unstaged changes
 - **`--branch`** — same as empty (explicit)
 - **`--base <ref>`** — diff HEAD vs a specific ref
-- **`--repo <path>`** — use an existing local repository instead of cloning
+- **`--repo <path>`** — review an existing local repository (a worktree, another checkout, a pre-checked-out PR head) instead of the current directory. A bare directory path means the same.
 - **`<PR-URL>`** — GitHub PR URL. Checks out the PR head into a temporary repository and reviews it.
 - **`--comment <PR>`** — after review, post results as a comment on the given PR number
 - **`--focus <path>`** — only review files matching this path prefix
@@ -44,7 +44,7 @@ PR head using separate tool calls so the approved `gh pr checkout` prefix is rec
    `gh pr checkout <number> --repo <owner>/<repo> --detach`.
 5. Run `bash "${SKILL_DIR}/scripts/fetch-context.sh" --repo PR_REPO_DIR --branch`.
 
-For local diffs, run the fetch script directly with the applicable mode and omit `--repo`.
+For local diffs, run the fetch script directly with the applicable mode, plus `--repo <path>` when the arguments name a checkout.
 
 Fields in metadata.json:
 - `scripts_dir` — absolute path to repo.sh and other scripts (use this in agent prompts instead of relative paths)
